@@ -1,0 +1,7 @@
+node_modules
+downloads
+.env
+.spotify-tokens.json
+.ssl
+npm-debug.log
+*.log

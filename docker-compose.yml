@@ -1,0 +1,35 @@
+# ── DJ_CORE — full stack in two containers ───────────────────────────────────
+# Start everything:   docker compose up -d --build
+# Stop everything:    docker compose down
+# View logs:          docker compose logs -f
+#
+# Set PUBLIC_URL in a .env file next to this (e.g. PUBLIC_URL=https://dj.yourdomain.com)
+
+services:
+  server:
+    build: ./server
+    restart: unless-stopped
+    environment:
+      - PORT=3001
+      # Lock CORS to your real domain in production (falls back to localhost for dev)
+      - CLIENT_ORIGIN=${PUBLIC_URL:-http://localhost:3000}
+    volumes:
+      # Downloaded tracks persist on the host even if the container is rebuilt.
+      - ./downloads:/app/downloads
+    expose:
+      - "3001"
+    # Only expose to localhost on the host — Cloudflare Tunnel reaches it internally.
+    ports:
+      - "127.0.0.1:3001:3001"
+
+  client:
+    build:
+      context: ./client
+      args:
+        # The browser talks to the backend at this URL — must be your public domain.
+        - NEXT_PUBLIC_SERVER_URL=${PUBLIC_URL:-http://localhost:3001}
+    restart: unless-stopped
+    depends_on:
+      - server
+    ports:
+      - "127.0.0.1:3000:3000"

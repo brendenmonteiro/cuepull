@@ -1,0 +1,23 @@
+# dependencies
+node_modules/
+**/node_modules/
+
+# builds
+client/.next/
+client/out/
+
+# env & secrets — never commit these
+.env
+**/.env
+**/.env.local
+server/.spotify-tokens.json
+server/.ssl/
+
+# downloaded audio
+server/downloads/
+downloads/
+!server/downloads/.gitkeep
+
+# logs / os
+*.log
+.DS_Store
