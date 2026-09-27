@@ -1,222 +1,219 @@
-# 🎧 DJ_CORE — Personal Track Downloader
+# DJ Core
 
-A personal tool for searching and downloading tracks for DJ sets. Search by song
-name or paste a Spotify / SoundCloud / Bandcamp link, pick a format (MP3 / FLAC /
-WAV), and the app finds the best source and downloads it — with a live queue
-showing progress in real time.
+A desktop app for building a DJ library. Type a track name or paste a link,
+pick a format, and it finds a source and pulls down the audio. Nothing is
+written to disk until you press download.
 
-> **Personal use only.** This is a tool for managing your own library. It pulls
-> from YouTube, SoundCloud, Bandcamp, the Internet Archive, and the Free Music
-> Archive via `yt-dlp`. Don't use it to redistribute copyrighted music.
+Windows desktop app. There is also a browser version if you prefer running it
+that way.
 
----
+![License](https://img.shields.io/badge/license-MIT-blue)
 
 ## What it does
 
-- **Single track search** — type `Artist - Song`, it searches YouTube + SoundCloud.
-  If an **Extended Mix** exists, it asks whether you want the Extended or the
-  Original version before downloading.
-- **Spotify playlists** — paste a public playlist/album/track link. It reads every
-  track name and queues them all. By default it grabs the **best format available
-  per track**: FLAC → WAV → MP3.
-- **SoundCloud** — paste a track or playlist URL for a direct download.
-- **Bandcamp** — paste a track/album URL for a true lossless download.
-- **Format choice** — MP3 (320 kbps), FLAC, or WAV. Lossless formats search
-  legitimate lossless sources (Internet Archive / Free Music Archive / Bandcamp).
-- **Live queue** — every download shows status (searching → found → downloading →
-  ready) and a progress bar, updated live over WebSockets.
+**Search by name.** Type `Artist - Song` and it searches YouTube and
+SoundCloud. If an Extended Mix turns up, it stops and asks which version you
+want before going any further.
 
----
+**Paste a link.** Spotify playlists, albums and tracks work (public ones), plus
+SoundCloud and Bandcamp URLs. A Spotify playlist gets read for its track names,
+then every track is searched individually.
 
-## Before you start — install these two things
+**Pick a format.** MP3 at 320 kbps, or FLAC and WAV from genuinely lossless
+sources.
 
-The app shells out to two command-line tools. **It will not work without them.**
+**Queue that shows what is happening.** Every track reports its state as it
+moves: searching, found, downloading, saved. Progress updates live.
 
-### 1. yt-dlp (does the searching + downloading)
+**Downloads happen when you ask.** Searching only finds a source. The track
+sits in the queue marked `READY TO GET` until you hit the download button on
+that row, or Download All. Then you choose where the file goes.
 
-**Windows:**
+## Install
+
+Download `DJ Core Setup <version>.exe` from [Releases](../../releases) and run
+it. It installs for your user only, so there is no admin prompt, and it ships
+its own copies of yt-dlp and ffmpeg. Nothing else to install.
+
+Windows SmartScreen will warn you the first time because the installer is not
+code signed. Click More info, then Run anyway. If you would rather not, build
+it yourself with the steps below.
+
+## Build it yourself
+
+```bash
+git clone https://github.com/brendenmonteiro/dj-core.git
+cd dj-core
+npm install
+npm run dist
+```
+
+That writes the installer to `dist/`. The first `npm run dist` also downloads
+yt-dlp and ffmpeg into `resources/bin/`, about 117 MB. Those binaries are not
+in the repo because they are large and carry their own licenses.
+
+To run it without building an installer:
+
+```bash
+npm run build:ui
+npm start
+```
+
+Add `npm run start:debug` instead of `npm start` if you want DevTools open.
+
+## Using it
+
+Pick a source mode at the top: `SINGLE` for a name, `PLAYLIST` for a Spotify or
+SoundCloud playlist, `URL` for a direct link. Pick a format. Type or paste,
+then hit enter.
+
+For a single track, a prompt asks whether you want the Extended Mix or the
+original. Pick one and the track drops into the queue.
+
+Tracks sit at `READY TO GET` until you download them. Hover a row and click the
+download arrow to fetch that one track and choose where to save it, or use
+Download All to pick one folder and save everything at once.
+
+Fetched files land in your library folder, sorted into a folder per day like
+`27-09-2026`. Change where that is under File, Edit Configuration.
+
+## Settings
+
+File, Edit Configuration opens a plain text config at:
+
+```
+%APPDATA%\DJ Core\.env
+```
+
+| Setting | What it does |
+|---|---|
+| `DOWNLOADS_DIR` | Where fetched tracks go. Defaults to `Music\DJ Core`. |
+| `SPOTIFY_CLIENT_ID` | Needed for Spotify playlist links. |
+| `SPOTIFY_CLIENT_SECRET` | Same. |
+| `YTDLP_PATH` | Use a specific yt-dlp instead of the bundled one. |
+| `FFMPEG_PATH` | Same, for ffmpeg. |
+
+Spotify credentials are free. Make an app at
+[developer.spotify.com/dashboard](https://developer.spotify.com/dashboard) and
+paste the ID and secret in. Everything except Spotify playlist links works
+without them.
+
+File, Open Downloads Folder jumps straight to your library.
+
+## About formats
+
+MP3 comes from YouTube or SoundCloud at 320 kbps.
+
+FLAC and WAV only come from sources that are actually lossless: the Internet
+Archive, the Free Music Archive, or Bandcamp. The app will not hand you a
+YouTube rip relabelled as FLAC. If no real lossless source exists for a track,
+the search fails and tells you to use MP3 instead.
+
+In practice that means older, live, independent, classical and Creative Commons
+music resolves well in lossless. Current chart songs usually will not, because
+they are not on those sources. If you want the studio master of a specific
+release, paste its Bandcamp URL and you get the exact file the artist uploaded.
+
+For a Spotify playlist left on the default format, each track is tried as FLAC,
+then WAV, then MP3, so you end up with lossless where it exists and MP3
+everywhere else. Picking FLAC or WAV explicitly is treated as strict, with no
+quiet downgrade.
+
+## Running in a browser instead
+
+The desktop app is one process. The browser setup is the older two process
+version: a Node backend and a Next.js frontend.
+
+You need [yt-dlp](https://github.com/yt-dlp/yt-dlp) and
+[ffmpeg](https://ffmpeg.org/) on your PATH for this. On Windows:
+
 ```powershell
 winget install yt-dlp.yt-dlp
-```
-
-**macOS:**
-```bash
-brew install yt-dlp
-```
-
-**Linux:**
-```bash
-sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
-sudo chmod a+rx /usr/local/bin/yt-dlp
-```
-
-### 2. ffmpeg (converts audio to MP3 / FLAC / WAV)
-
-**Windows:**
-```powershell
 winget install Gyan.FFmpeg
 ```
 
-**macOS:**
+Then run each part in its own terminal:
+
 ```bash
-brew install ffmpeg
+cd server && npm install && npm run dev
 ```
 
-**Linux:**
 ```bash
-sudo apt install ffmpeg
+cd client && npm install && npm run dev
 ```
 
-### Verify both are installed
+Open http://localhost:3000.
 
-Open a **new** terminal and run:
-```bash
-yt-dlp --version
-ffmpeg -version
-```
-If both print version numbers, you're good. If you get "command not found,"
-restart your terminal (or reboot) so the PATH updates, then try again.
-
-You'll also need **Node.js 18+** — get it from [nodejs.org](https://nodejs.org).
-
----
-
-## Running the app (the normal way)
-
-The app has two parts that run at the same time, so you need **two terminals**.
-
-### Terminal 1 — the backend server
-```bash
-cd server
-npm install      # first time only
-npm run dev
-```
-You should see: `🎧 DJ Request Server  http://localhost:3001`
-
-### Terminal 2 — the frontend
-```bash
-cd client
-npm install      # first time only
-npm run dev
-```
-You should see: `ready - started server on http://localhost:3000`
-
-### Open it
-Go to **http://localhost:3000** in your browser. It opens the DJ console — search,
-format selector, and live queue, all on one page.
-
-> Leave **both** terminals running while you use the app. Closing either one stops
-> it. To shut down, press `Ctrl+C` in each terminal.
-
----
-
-## How to use it
-
-1. **Pick a source** (top of the page): `SINGLE`, `PLAYLIST`, or `URL`.
-2. **Pick a format:** `MP3`, `FLAC`, or `WAV`.
-3. **Type or paste** into the search box and hit Enter (or the button).
-4. For a **single song**, a popup asks **Extended Mix vs Original** — choose one.
-5. Watch the **queue** below fill in. When a track says **READY**, hover the row
-   and click the **download arrow** to open/save the file, or **play** to mark it
-   played.
-
-Downloaded files are saved to the **`server/downloads/`** folder, named after the
-track. You can also open any finished file directly at:
-```
-http://localhost:3001/downloads/<filename>
-```
-
----
-
-## Format priority for playlists
-
-When you share a **Spotify playlist** with the format left on the default, each
-track is fetched at the best quality available, trying in order:
-
-1. **FLAC** (from a lossless source, if one exists)
-2. **WAV** (same source, if FLAC conversion fails)
-3. **MP3 320 kbps** (fallback — from YouTube/SoundCloud)
-
-So a playlist becomes a mix of lossless-where-available and MP3-everywhere-else.
-If you explicitly pick FLAC or WAV in the UI, that choice is honored strictly
-(no silent downgrade).
-
-> **Reality check:** lossless sources (Internet Archive / Free Music Archive) are
-> mostly older, independent, or Creative-Commons music. For a playlist of current
-> chart hits, most tracks will land as MP3 simply because no legitimate lossless
-> source exists for them. The app grabs FLAC whenever one genuinely exists — it
-> can't manufacture lossless that isn't out there.
-
----
-
-## Project layout
-
-```
-dj-request-app/
-├── server/                 # Node + Express + Socket.io backend
-│   ├── index.js            # Server entry, HTTP + WebSocket + /downloads route
-│   ├── musicHandler.js     # yt-dlp search/download, Spotify/SoundCloud/lossless
-│   ├── socketManager.js    # Request pipelines + live queue state
-│   ├── downloads/          # Where finished files are saved
-│   └── package.json
-│
-├── client/                 # Next.js 14 frontend (the single-page console)
-│   ├── app/
-│   │   ├── dashboard/      # The main UI (search + format + queue + modal)
-│   │   ├── components/ui/  # TrackCard and shared bits
-│   │   └── page.tsx        # Redirects "/" → "/dashboard"
-│   ├── lib/socket.ts       # Socket.io client singleton
-│   ├── types/index.ts      # Shared TypeScript types
-│   └── package.json
-│
-├── docker-compose.yml      # Run the whole thing with one command (optional)
-└── README.md
-```
-
----
-
-## Running with Docker (optional, advanced)
-
-If you have Docker Desktop installed, you can run everything with one command —
-no need to install Node, yt-dlp, or ffmpeg separately (they're baked into the
-image):
+With Docker, one command does both:
 
 ```bash
 docker compose up -d --build
 ```
 
-Then open **http://localhost:3000**. Downloads land in `./downloads/` on your
-machine. To stop:
-```bash
-docker compose down
+Files land in `./downloads/`. Stop it with `docker compose down`.
+
+## Layout
+
+```
+dj-core/
+├── electron/            Desktop shell
+│   ├── main.js          Window, server lifecycle, save dialogs
+│   └── preload.js       The only bridge between page and Electron
+├── server/              Node, Express, Socket.io
+│   ├── index.js         HTTP and WebSocket entry
+│   ├── musicHandler.js  yt-dlp search and download
+│   ├── socketManager.js Queue state and request pipelines
+│   └── binaries.js      Finds yt-dlp and ffmpeg
+├── client/              Next.js frontend
+│   ├── app/dashboard/   The UI
+│   └── lib/socket.ts    Socket.io client
+├── scripts/             Build helpers
+└── resources/           Icon, and bundled binaries once fetched
 ```
 
----
+## If something breaks
 
-## Troubleshooting
+**Search finds nothing, or downloads fail with a 403.** yt-dlp is probably out
+of date. YouTube changes things and old versions stop working. Run `yt-dlp -U`
+if you installed it yourself. The app prefers your own copy over its bundled
+one for exactly this reason.
 
-| Problem | Fix |
-|---|---|
-| **"command not found: yt-dlp / ffmpeg"** | They're not installed or not on PATH. Re-do the install step, then open a **new** terminal. |
-| **"address already in use :::3001"** | An old server is still running. Run `npx kill-port 3001` then start again. |
-| **Search finds nothing** | yt-dlp may be outdated. Update it: `yt-dlp -U` (or re-run the install). |
-| **Spotify playlist won't load** | The playlist must be **public**. Private/collaborative ones can't be read. |
-| **Page loads but downloads never start** | Make sure the **backend** terminal is running too — the frontend needs it. |
-| **FLAC/WAV download fails on a chart song** | No legitimate lossless source exists for it; switch that track to MP3. |
-| **Browser shows "can't connect"** | Check both terminals are running and you're on `http://localhost:3000`. |
+**A Spotify link will not load.** The playlist has to be public. Private and
+collaborative playlists cannot be read. Check your credentials are filled in
+under File, Edit Configuration.
 
----
+**FLAC or WAV fails on a chart song.** There is no lossless source for it.
+Switch that track to MP3.
 
-## Notes on quality
+**Port 3001 already in use** (browser setup only). An old server is still
+running. `npx kill-port 3001` and start again.
 
-- **MP3** is always 320 kbps (from YouTube / SoundCloud).
-- **FLAC / WAV** come **only from genuinely lossless sources** — Internet Archive,
-  the Free Music Archive, or Bandcamp. The app will **never** quietly hand you a
-  YouTube rip dressed up as FLAC. If no real lossless source exists for a track,
-  the FLAC/WAV search **fails on purpose** and tells you to use MP3 instead.
-- **What this means in practice:** lossless sources are deep in older, live,
-  independent, classical, and Creative-Commons music — so those resolve well.
-  Current commercial chart songs usually **won't** be found in lossless (they're
-  not on those sources), and the app will say so rather than fake it.
-- **For true studio-master lossless of a specific release**, paste its **Bandcamp**
-  URL directly — that downloads the exact lossless file the artist uploaded.
+**The desktop app window is blank.** Launch with `npm run start:debug` and
+check the console. Worth reporting if you hit this.
+
+## Third party tools
+
+This app drives two external programs and bundles them in the Windows
+installer without modification:
+
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp), Unlicense. Does the searching and
+  downloading.
+- [ffmpeg](https://ffmpeg.org/), specifically the
+  [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) essentials build, which is
+  GPL licensed. Converts audio.
+
+If you redistribute a build of this app you are redistributing those binaries
+too, so check you are happy with their licenses, particularly the GPL terms on
+ffmpeg.
+
+## License and use
+
+MIT. See [LICENSE](LICENSE).
+
+This is for managing your own library. It downloads from public sources through
+yt-dlp. Whether any given download is legal depends on the material and where
+you live, and that is your call to make. Do not use it to redistribute music
+you do not own.
+
+No account or telemetry. Spotify credentials, if you add them, stay on your
+machine and only ever go to Spotify.

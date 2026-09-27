@@ -1,4 +1,4 @@
-# ── DJ_CORE — full stack in two containers ───────────────────────────────────
+#  DJ_CORE, full stack in two containers
 # Start everything:   docker compose up -d --build
 # Stop everything:    docker compose down
 # View logs:          docker compose logs -f
@@ -18,7 +18,7 @@ services:
       - ./downloads:/app/downloads
     expose:
       - "3001"
-    # Only expose to localhost on the host — Cloudflare Tunnel reaches it internally.
+    # Only expose to localhost on the host, Cloudflare Tunnel reaches it internally.
     ports:
       - "127.0.0.1:3001:3001"
 
@@ -26,7 +26,7 @@ services:
     build:
       context: ./client
       args:
-        # The browser talks to the backend at this URL — must be your public domain.
+        # The browser talks to the backend at this URL, must be your public domain.
         - NEXT_PUBLIC_SERVER_URL=${PUBLIC_URL:-http://localhost:3001}
     restart: unless-stopped
     depends_on:

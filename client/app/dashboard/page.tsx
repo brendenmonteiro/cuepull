@@ -2,15 +2,17 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { connectSocket, disconnectSocket } from "@/lib/socket";
+import { connectSocket } from "@/lib/socket";
 import { Track, TrackMeta } from "@/types";
 import { TrackCard } from "@/app/components/ui/TrackCard";
 
-type Filter = "all" | "active" | "ready" | "played";
+type Filter = "all" | "active" | "staged" | "ready" | "played";
 type Format = "mp3" | "flac" | "wav";
 type Mode = "song" | "playlist" | "soundcloud";
 
 const ACTIVE = new Set(["pending", "searching", "found", "downloading"]);
+// Found a source but not fetched yet, waiting on the user to press Download.
+const STAGED = "staged";
 
 // Extended-mix choice modal state
 type ChoiceState =
@@ -59,7 +61,6 @@ export default function DashboardPage() {
     return () => {
       ["connect","disconnect","queue:sync","dj:track-added","dj:track-updated","dj:progress","request:extended-result"]
         .forEach((e) => socket.off(e));
-      disconnectSocket();
     };
   }, []);
 
@@ -88,10 +89,138 @@ export default function DashboardPage() {
   const clearQueue = () => {
     socketRef.current.emit("dj:clear-queue");
     setQueue([]);
+    // Reset the view filter too, otherwise a clear done while viewing
+    // "ready"/"played" hides every newly added track (they arrive "pending").
+    setFilter("all");
   };
+
+  // Nothing is fetched until one of these runs, the queue holds candidates,
+  // not files. "Fetch" pulls the audio via the server; "save" then copies it
+  // wherever the user chooses.
+  const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const markBusy = (id: string, on: boolean) =>
+    setBusyIds((prev) => {
+      const next = new Set(prev);
+      on ? next.add(id) : next.delete(id);
+      return next;
+    });
+
+  const fetchTrack = (trackId: string): Promise<{ ok: boolean; fileName?: string; error?: string }> =>
+    new Promise((resolve) => {
+      socketRef.current.emit("dj:download", { trackId }, resolve);
+    });
+
+  const suggestedName = (t: Track) =>
+    t.meta?.fileName?.split("/").pop() ?? `${t.songName}.${t.meta?.format ?? "mp3"}`;
+
+  // One track: fetch if needed, then a native Save As dialog.
+  const downloadOne = useCallback(async (trackId: string) => {
+    const track = queue.find((t) => t.trackId === trackId);
+    if (!track) return;
+    markBusy(trackId, true);
+    setNotice(null);
+    try {
+      let fileName = track.meta?.fileName;
+      if (!fileName) {
+        const res = await fetchTrack(trackId);
+        if (!res.ok) {
+          setNotice(res.error ?? "Download failed.");
+          return;
+        }
+        fileName = res.fileName;
+      }
+      if (!fileName) return;
+
+      if (window.djcore?.isDesktop) {
+        const out = await window.djcore.saveTrack({
+          fileName,
+          suggestedName: fileName.split("/").pop(),
+        });
+        if (out.saved) setNotice(`Saved to ${out.path}`);
+        else if (out.error) setNotice(out.error);
+      } else {
+        // Browser fallback: plain link download.
+        const rel = fileName.split("/").map(encodeURIComponent).join("/");
+        const a = document.createElement("a");
+        a.href = `${process.env.NEXT_PUBLIC_SERVER_URL}/downloads/${rel}`;
+        a.download = fileName.split("/").pop() ?? "";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+    } finally {
+      markBusy(trackId, false);
+    }
+  }, [queue]);
+
+  // Every staged track: ask once for a folder, then fetch and write each one.
+  const downloadAll = useCallback(async () => {
+    const targets = queue.filter(
+      (t) => t.status === STAGED || (t.status === "ready" && t.meta?.fileName)
+    );
+    if (!targets.length) return;
+    setNotice(null);
+
+    let dir: string | undefined;
+    if (window.djcore?.isDesktop) {
+      const pick = await window.djcore.chooseFolder();
+      if (pick.canceled || !pick.dir) return;
+      dir = pick.dir;
+    }
+
+    let saved = 0;
+    const failures: string[] = [];
+
+    for (const t of targets) {
+      markBusy(t.trackId, true);
+      try {
+        let fileName = t.meta?.fileName;
+        if (!fileName) {
+          const res = await fetchTrack(t.trackId);
+          if (!res.ok) {
+            failures.push(t.songName);
+            continue;
+          }
+          fileName = res.fileName;
+        }
+        if (!fileName) continue;
+
+        if (dir && window.djcore?.isDesktop) {
+          const out = await window.djcore.saveTrackTo({
+            fileName,
+            dir,
+            suggestedName: fileName.split("/").pop(),
+          });
+          if (out.saved) saved++;
+          else failures.push(t.songName);
+        } else {
+          const rel = fileName.split("/").map(encodeURIComponent).join("/");
+          const a = document.createElement("a");
+          a.href = `${process.env.NEXT_PUBLIC_SERVER_URL}/downloads/${rel}`;
+          a.download = fileName.split("/").pop() ?? "";
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          saved++;
+          await new Promise((r) => setTimeout(r, 400));
+        }
+      } finally {
+        markBusy(t.trackId, false);
+      }
+    }
+
+    setNotice(
+      failures.length
+        ? `Saved ${saved}. Failed: ${failures.join(", ")}`
+        : `Saved ${saved} track${saved === 1 ? "" : "s"}${dir ? ` to ${dir}` : ""}`
+    );
+  }, [queue]);
 
   const stats = {
     total: queue.length,
+    staged: queue.filter((t) => t.status === STAGED).length,
     active: queue.filter((t) => ACTIVE.has(t.status)).length,
     ready: queue.filter((t) => t.status === "ready").length,
     played: queue.filter((t) => t.status === "played").length,
@@ -99,6 +228,7 @@ export default function DashboardPage() {
 
   const filtered = queue.filter((t) => {
     if (filter === "active") return ACTIVE.has(t.status);
+    if (filter === "staged") return t.status === STAGED;
     if (filter === "ready") return t.status === "ready";
     if (filter === "played") return t.status === "played";
     return true;
@@ -129,7 +259,7 @@ export default function DashboardPage() {
 
       <main className="max-w-5xl mx-auto w-full px-gutter py-stack-md md:py-stack-lg flex-1">
 
-        {/* ── Search / download console ─────────────────────────────────── */}
+        {/*  Search / download console  */}
         <section className="mb-stack-lg border border-primary">
           {/* Input row */}
           <div className="flex items-center border-b border-primary">
@@ -196,16 +326,16 @@ export default function DashboardPage() {
           <div className="px-gutter pb-stack-sm">
             <span className="font-label-mono text-label-mono text-secondary">
               {mode === "song"
-                ? "SINGLE // prompts for Extended Mix vs Original before downloading"
+                ? "SINGLE // asks Extended Mix or Original, then waits for you to download"
                 : mode === "playlist"
                 ? "PLAYLIST // auto-prefers Extended Mix, falls back to Original"
-                : "URL // direct download from the pasted link"}
+                : "URL // pulls the track straight from the link you paste"}
               {format !== "mp3" && " · LOSSLESS"}
             </span>
           </div>
         </section>
 
-        {/* ── Queue ──────────────────────────────────────────────────────── */}
+        {/*  Queue  */}
         <section>
           <div className="flex justify-between items-end mb-unit">
             <h2 className="font-label-caps text-label-caps uppercase text-secondary">
@@ -213,7 +343,7 @@ export default function DashboardPage() {
             </h2>
             <div className="flex items-center gap-stack-md">
               <div className="flex gap-stack-md">
-                {(["all","active","ready","played"] as Filter[]).map((f) => (
+                {(["all","active","staged","ready","played"] as Filter[]).map((f) => (
                   <button
                     key={f}
                     onClick={() => setFilter(f)}
@@ -221,7 +351,7 @@ export default function DashboardPage() {
                       filter === f ? "text-primary" : "text-secondary hover:text-on-surface"
                     }`}
                   >
-                    {f}{f === "active" && stats.active > 0 ? `(${stats.active})` : f === "ready" && stats.ready > 0 ? `(${stats.ready})` : ""}
+                    {f}{f === "active" && stats.active > 0 ? `(${stats.active})` : f === "staged" && stats.staged > 0 ? `(${stats.staged})` : f === "ready" && stats.ready > 0 ? `(${stats.ready})` : ""}
                   </button>
                 ))}
               </div>
@@ -246,15 +376,38 @@ export default function DashboardPage() {
                   </motion.div>
                 ) : (
                   filtered.map((track, i) => (
-                    <TrackCard key={track.trackId} track={track} index={i + 1} onMarkPlayed={markPlayed} onRemove={removeTrack} />
+                    <TrackCard
+                      key={track.trackId}
+                      track={track}
+                      index={i + 1}
+                      onMarkPlayed={markPlayed}
+                      onRemove={removeTrack}
+                      onDownload={downloadOne}
+                      busy={busyIds.has(track.trackId)}
+                    />
                   ))
                 )}
               </AnimatePresence>
             </div>
           </div>
 
+          {notice && (
+            <p className="mt-stack-md font-label-mono text-label-mono text-secondary text-right break-all">
+              {notice}
+            </p>
+          )}
+
           {queue.length > 0 && (
-            <div className="mt-stack-md flex justify-end">
+            <div className="mt-stack-md flex justify-end gap-stack-md">
+              {stats.staged + stats.ready > 0 && (
+                <button
+                  onClick={downloadAll}
+                  disabled={busyIds.size > 0}
+                  className="font-label-caps text-label-caps border border-primary px-6 py-3 bg-primary text-on-primary hover:bg-transparent hover:text-primary transition-none disabled:opacity-50"
+                >
+                  DOWNLOAD ALL ({stats.staged + stats.ready})
+                </button>
+              )}
               <button
                 onClick={clearQueue}
                 className="font-label-caps text-label-caps text-secondary border border-primary px-6 py-3 hover:bg-primary hover:text-on-primary transition-none"
@@ -272,7 +425,8 @@ export default function DashboardPage() {
             <div className="flex gap-stack-lg font-label-mono text-label-mono">
               <span>TOTAL <strong className="text-primary">{stats.total}</strong></span>
               <span>ACTIVE <strong className="text-primary">{stats.active}</strong></span>
-              <span>READY <strong className="text-primary">{stats.ready}</strong></span>
+              <span>TO GET <strong className="text-primary">{stats.staged}</strong></span>
+              <span>SAVED <strong className="text-primary">{stats.ready}</strong></span>
               <span>PLAYED <strong className="text-primary">{stats.played}</strong></span>
             </div>
           </div>
@@ -286,7 +440,7 @@ export default function DashboardPage() {
         </section>
       </main>
 
-      {/* ── Extended / Original prompt modal ─────────────────────────────── */}
+      {/*  Extended / Original prompt modal  */}
       <AnimatePresence>
         {choice.open && (
           <motion.div

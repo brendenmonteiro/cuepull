@@ -1,9 +1,10 @@
-// types/index.ts — Shared types across the app
+// types/index.ts, Shared types across the app
 
 export type TrackStatus =
   | "pending"
   | "searching"
   | "found"
+  | "staged"
   | "downloading"
   | "ready"
   | "played"
@@ -31,7 +32,7 @@ export interface Track {
   error: string | null;
 }
 
-// ── Socket event payloads ─────────────────────────────────────────────────────
+//  Socket event payloads
 
 export interface RequestReceivedPayload {
   trackId: string;
@@ -53,7 +54,7 @@ export interface DJProgressPayload {
   progress: number;
 }
 
-// ── UI state for the mobile view ──────────────────────────────────────────────
+//  UI state for the mobile view
 
 export type MobileRequestState =
   | { phase: "idle" }
@@ -65,3 +66,26 @@ export type MobileRequestState =
   | { phase: "ready"; trackId: string; meta?: TrackMeta }
   | { phase: "bulk"; count: number }
   | { phase: "error"; message: string };
+
+//  Desktop bridge (Electron preload)
+// Present only inside the packaged desktop app; undefined in a browser.
+export interface SaveResult {
+  saved: boolean;
+  canceled?: boolean;
+  path?: string;
+  error?: string;
+}
+
+export interface DjCoreBridge {
+  isDesktop: true;
+  saveTrack(p: { fileName: string; suggestedName?: string }): Promise<SaveResult>;
+  chooseFolder(): Promise<{ canceled: boolean; dir?: string }>;
+  saveTrackTo(p: { fileName: string; dir: string; suggestedName?: string }): Promise<SaveResult>;
+  revealFile(absPath: string): Promise<{ ok: boolean }>;
+}
+
+declare global {
+  interface Window {
+    djcore?: DjCoreBridge;
+  }
+}

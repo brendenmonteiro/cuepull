@@ -21,6 +21,9 @@ const STATUS = {
   PENDING: "pending",
   SEARCHING: "searching",
   FOUND: "found",
+  // Search finished and a source is known, but nothing has been fetched yet.
+  // The user commits the download explicitly (per-track or Download All).
+  STAGED: "staged",
   DOWNLOADING: "downloading",
   READY: "ready",
   PLAYED: "played",
@@ -38,7 +41,7 @@ function initSocketManager(io) {
       socket.emit("queue:sync", serializeQueue());
     });
 
-    // ── User chooses Extended Mix or Original ──────────────────────────────
+    //  User chooses Extended Mix or Original
     socket.on("request:version-choice", ({ trackId, version }) => {
       const pending = pendingChoices.get(trackId);
       if (!pending) return;
@@ -47,7 +50,7 @@ function initSocketManager(io) {
       pending.resolve(version);
     });
 
-    // ── New track request ──────────────────────────────────────────────────
+    //  New track request
     // format: "mp3" (default) | "flac" | "wav". Lossless formats route to the
     // legitimate lossless sources (Bandcamp / Internet Archive / FMA).
     socket.on("request:submit", async ({ songName, format }) => {
@@ -60,7 +63,7 @@ function initSocketManager(io) {
       const fmt = ["flac", "wav"].includes(format) ? format : "mp3";
       const lossless = fmt !== "mp3";
 
-      // ── Spotify playlist / album / track ─────────────────────────────────
+      //  Spotify playlist / album / track
       if (isSpotifyUrl(trimmed)) {
         let tracks;
         try {
@@ -77,7 +80,7 @@ function initSocketManager(io) {
           trackQueue.set(trackId, track);
           broadcastToDJ(io, "dj:track-added", serializeTrack(track));
           if (lossless) {
-            // User explicitly chose FLAC or WAV — honor it strictly.
+            // User explicitly chose FLAC or WAV, honor it strictly.
             processLosslessPipeline(io, socket, trackId, query, true, fmt);
           } else {
             // Default: auto-prioritize quality per track → FLAC → WAV → MP3.
@@ -88,7 +91,7 @@ function initSocketManager(io) {
         return;
       }
 
-      // ── SoundCloud URL ────────────────────────────────────────────────────
+      //  SoundCloud URL
       if (isSoundCloudUrl(trimmed)) {
         let tracks;
         try {
@@ -119,7 +122,7 @@ function initSocketManager(io) {
         return;
       }
 
-      // ── Bandcamp URL — direct lossless download via yt-dlp ───────────────
+      //  Bandcamp URL, direct lossless download via yt-dlp
       if (isBandcampUrl(trimmed)) {
         const trackId = uuidv4();
         const track = makeTrack(trackId, trimmed, socket.id);
@@ -137,7 +140,7 @@ function initSocketManager(io) {
         return;
       }
 
-      // ── Single song search — interactive Extended/Original prompt ─────────
+      //  Single song search, interactive Extended/Original prompt
       // Works for every format: we search for an extended mix, ask the user,
       // then download the chosen version in the requested format (mp3/flac/wav).
       const trackId = uuidv4();
@@ -147,6 +150,38 @@ function initSocketManager(io) {
       broadcastToDJ(io, "dj:track-added", serializeTrack(track));
       broadcastToDJ(io, "queue:sync", serializeQueue());
       processSongWithChoicePipeline(io, socket, trackId, trimmed, fmt);
+    });
+
+    //  Commit a staged track (per-track Download button)
+    socket.on("dj:download", async ({ trackId }, ack) => {
+      try {
+        const fileName = await commitDownload(io, socket, trackId);
+        if (typeof ack === "function") ack({ ok: true, trackId, fileName });
+      } catch (err) {
+        pipelineError(io, socket, trackId, err.message);
+        if (typeof ack === "function") ack({ ok: false, trackId, error: err.message });
+      }
+    });
+
+    //  Commit every staged track (Download All)
+    // Sequential on purpose: parallel yt-dlp processes compete for bandwidth
+    // and make the per-track progress bars meaningless.
+    socket.on("dj:download-all", async (_payload, ack) => {
+      const pending = Array.from(trackQueue.values())
+        .filter((t) => t.status === STATUS.STAGED)
+        .map((t) => t.trackId);
+
+      const results = [];
+      for (const id of pending) {
+        try {
+          const fileName = await commitDownload(io, socket, id);
+          results.push({ trackId: id, ok: true, fileName });
+        } catch (err) {
+          pipelineError(io, socket, id, err.message);
+          results.push({ trackId: id, ok: false, error: err.message });
+        }
+      }
+      if (typeof ack === "function") ack({ ok: true, results });
     });
 
     socket.on("dj:mark-played", ({ trackId }) => {
@@ -171,7 +206,7 @@ function initSocketManager(io) {
   });
 }
 
-// ── Single song: search → ask user Extended or Original → download ─────────
+//  Single song: search → ask user Extended or Original → download
 
 async function processSongWithChoicePipeline(io, socket, trackId, songName, format = "mp3") {
   try {
@@ -208,7 +243,7 @@ async function processSongWithChoicePipeline(io, socket, trackId, songName, form
   }
 }
 
-// ── Playlist auto pipeline: Extended if found, Original otherwise ──────────
+//  Playlist auto pipeline: Extended if found, Original otherwise
 
 async function processAutoPipeline(io, socket, trackId, songName, isBulk) {
   try {
@@ -230,7 +265,7 @@ async function processAutoPipeline(io, socket, trackId, songName, isBulk) {
   }
 }
 
-// ── Playlist quality-priority pipeline: FLAC → WAV → MP3 ────────────────────
+//  Playlist quality-priority pipeline: FLAC → WAV → MP3
 // For each playlist track we try to land the highest-quality format available:
 //   1. A GENUINE lossless source (Internet Archive / FMA) → download as FLAC
 //   2. Same source → download as WAV
@@ -241,7 +276,7 @@ async function processPlaylistPriorityPipeline(io, socket, trackId, songName, is
     if (!isBulk) emitToRequester(socket, trackId, STATUS.SEARCHING);
     broadcastToDJ(io, "dj:track-updated", serializeTrack(trackQueue.get(trackId)));
 
-    // 1 & 2: try a GENUINE lossless source only (no YouTube — that's the MP3 tier).
+    // 1 & 2: try a GENUINE lossless source only (no YouTube, that's the MP3 tier).
     let losslessResult = null;
     try {
       losslessResult = await searchLossless(songName, false);
@@ -274,7 +309,7 @@ async function processPlaylistPriorityPipeline(io, socket, trackId, songName, is
   }
 }
 
-// ── SoundCloud direct download ─────────────────────────────────────────────
+//  SoundCloud direct download
 
 async function processSoundCloudPipeline(io, socket, trackId, preMeta, isBulk, format = "mp3") {
   try {
@@ -298,7 +333,7 @@ async function processSoundCloudPipeline(io, socket, trackId, preMeta, isBulk, f
   }
 }
 
-// ── Lossless pipeline: search Bandcamp / Internet Archive / FMA → WAV/FLAC ──
+//  Lossless pipeline: search Bandcamp / Internet Archive / FMA → WAV/FLAC
 
 async function processLosslessPipeline(io, socket, trackId, songName, isBulk, format) {
   try {
@@ -314,7 +349,7 @@ async function processLosslessPipeline(io, socket, trackId, songName, isBulk, fo
   }
 }
 
-// ── Shared: FOUND → DOWNLOADING → READY ──────────────────────────────────
+//  Shared: FOUND → DOWNLOADING → READY
 
 async function finishDownloadPipeline(io, socket, trackId, searchResult, isBulk, format = "mp3") {
   // Tag the format onto meta from the start so the UI shows the right label
@@ -324,30 +359,49 @@ async function finishDownloadPipeline(io, socket, trackId, searchResult, isBulk,
   if (!isBulk) emitToRequester(socket, trackId, STATUS.FOUND, { meta: metaWithFormat });
   broadcastToDJ(io, "dj:track-updated", serializeTrack(trackQueue.get(trackId)));
 
-  updateTrack(trackId, { status: STATUS.DOWNLOADING, progress: 30 });
-  if (!isBulk) emitToRequester(socket, trackId, STATUS.DOWNLOADING);
+  // Stop here. Nothing is fetched until the user asks for it, so the queue is a
+  // list of candidates rather than files already written to disk.
+  updateTrack(trackId, { status: STATUS.STAGED, progress: 100, meta: metaWithFormat });
+  if (!isBulk) emitToRequester(socket, trackId, STATUS.STAGED, { meta: metaWithFormat });
+  broadcastToDJ(io, "dj:track-updated", serializeTrack(trackQueue.get(trackId)));
+  broadcastToDJ(io, "queue:sync", serializeQueue());
+}
+
+//  Commit: actually fetch a staged track
+// Runs only when the user presses Download (or Download All).
+
+async function commitDownload(io, socket, trackId) {
+  const track = trackQueue.get(trackId);
+  if (!track) throw new Error("Track is no longer in the queue.");
+  if (!track.meta || !track.meta.url) throw new Error("No source for this track.");
+  // Already fetched, nothing to do.
+  if (track.status === STATUS.READY && track.meta.fileName) return track.meta.fileName;
+
+  const format = track.meta.format || "mp3";
+  updateTrack(trackId, { status: STATUS.DOWNLOADING, progress: 0 });
+  emitToRequester(socket, trackId, STATUS.DOWNLOADING);
   broadcastToDJ(io, "dj:track-updated", serializeTrack(trackQueue.get(trackId)));
 
   const { fileName } = await downloadTrack(
-    searchResult.url,
+    track.meta.url,
     trackId,
-    searchResult.title,
+    track.meta.title,
     (pct) => {
-      const overall = 30 + Math.floor(pct * 0.65);
-      updateTrack(trackId, { progress: overall });
-      broadcastToDJ(io, "dj:progress", { trackId, progress: overall });
+      updateTrack(trackId, { progress: pct });
+      broadcastToDJ(io, "dj:progress", { trackId, progress: pct });
     },
     format
   );
 
   const updatedMeta = { ...trackQueue.get(trackId).meta, fileName, format };
   updateTrack(trackId, { status: STATUS.READY, progress: 100, meta: updatedMeta });
-  if (!isBulk) emitToRequester(socket, trackId, STATUS.READY);
+  emitToRequester(socket, trackId, STATUS.READY);
   broadcastToDJ(io, "dj:track-updated", serializeTrack(trackQueue.get(trackId)));
   broadcastToDJ(io, "queue:sync", serializeQueue());
+  return fileName;
 }
 
-// ── Wait for the user's Extended / Original choice ────────────────────────
+//  Wait for the user's Extended / Original choice
 
 function waitForVersionChoice(socket, trackId, hasExtended, extendedTitle) {
   return new Promise((resolve) => {
@@ -363,7 +417,7 @@ function waitForVersionChoice(socket, trackId, hasExtended, extendedTitle) {
   });
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────
+//  Helpers
 
 function pipelineError(io, socket, trackId, message) {
   console.error(`[Pipeline] Error for ${trackId}:`, message);

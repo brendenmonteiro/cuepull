@@ -1,0 +1,7 @@
+{
+  "name": "dj-core-desktop",
+  "version": "1.0.0",
+  "description": "DJ Core desktop shell",
+  "main": "main.js",
+  "private": true
+}

@@ -2,11 +2,24 @@ const { execFile, spawn } = require("child_process");
 const https = require("https");
 const fs = require("fs");
 const path = require("path");
+const { ytDlpPath, ffmpegArgs } = require("./binaries");
 
-const DOWNLOADS_DIR = path.join(__dirname, "downloads");
+// Base library folder. Override with DOWNLOADS_DIR in server/.env to point at
+// your real music library; defaults to ./downloads so a fresh clone still works.
+const DOWNLOADS_DIR = process.env.DOWNLOADS_DIR
+  ? path.resolve(process.env.DOWNLOADS_DIR)
+  : path.join(__dirname, "downloads");
 
 if (!fs.existsSync(DOWNLOADS_DIR)) {
   fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
+}
+
+// Tracks are filed under a per-day folder, DD-MM-YYYY in local time, so a set
+// downloaded today lands together in e.g. "27-09-2026/".
+function todayFolder() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()}`;
 }
 
 function isSpotifyUrl(input) {
@@ -16,10 +29,10 @@ function isSpotifyUrl(input) {
   );
 }
 
-// ── Spotify — scrape the public embed page (no token, no API keys) ───────────
+//  Spotify, scrape the public embed page (no token, no API keys)
 // open.spotify.com/embed/{type}/{id} is the publicly-rendered widget Spotify
 // serves for website embeds. Its HTML contains a __NEXT_DATA__ JSON blob with
-// the full tracklist. No auth required — this is what every embed preview uses.
+// the full tracklist. No auth required, this is what every embed preview uses.
 
 function fetchHtml(hostname, reqPath, redirectsLeft = 3) {
   return new Promise((resolve, reject) => {
@@ -100,7 +113,7 @@ async function getSpotifyTracks(url) {
     nextData?.props?.pageProps?.data?.entity;
 
   if (!entity) {
-    throw new Error("Spotify embed format not recognised — try copying the link again.");
+    throw new Error("Spotify embed format not recognised, try copying the link again.");
   }
 
   if (type === "track") {
@@ -130,7 +143,7 @@ async function searchMusicApi(query, requireExtended = true) {
       ? `ytsearch1:${query} Extended Mix`
       : `ytsearch1:${query}`;
     execFile(
-      "yt-dlp",
+      ytDlpPath(),
       ["--no-download", "--print", "%(id)s\t%(title)s\t%(uploader)s\t%(duration_string)s", searchQuery],
       { timeout: 30000 },
       (err, stdout) => {
@@ -139,7 +152,7 @@ async function searchMusicApi(query, requireExtended = true) {
         if (!line) return reject(new Error(`No results found for "${query}"`));
         const [id, title, uploader, duration] = line.split("\t");
         if (requireExtended && !/extended\s+mix/i.test(title)) {
-          return reject(new Error(`No Extended Mix found for "${query}" — top result was "${title}"`));
+          return reject(new Error(`No Extended Mix found for "${query}", top result was "${title}"`));
         }
         resolve({
           title: title || query,
@@ -161,7 +174,7 @@ async function searchSoundCloudMix(query, requireExtended = true) {
       ? `scsearch1:${query} Extended Mix`
       : `scsearch1:${query}`;
     execFile(
-      "yt-dlp",
+      ytDlpPath(),
       ["--no-download", "--print", "%(webpage_url)s\t%(title)s\t%(uploader)s\t%(duration_string)s", searchQuery],
       { timeout: 30000 },
       (err, stdout) => {
@@ -199,14 +212,14 @@ async function searchOriginal(query) {
   throw new Error(`Could not find "${query}" on YouTube or SoundCloud`);
 }
 
-// ── Lossless sources (Bandcamp, Internet Archive, Free Music Archive) ────────
+//  Lossless sources (Bandcamp, Internet Archive, Free Music Archive)
 // These are legitimate sources that distribute WAV/FLAC. yt-dlp resolves each
 // via its own extractor / a generic search. We grab the top match's page URL,
 // then downloadTrack() pulls the best available audio in the requested format.
 
 // Each source resolves a query to a real page URL yt-dlp can extract audio from.
 
-// Internet Archive — advanced-search JSON API, preferring items that actually
+// Internet Archive, advanced-search JSON API, preferring items that actually
 // carry a lossless format and ranking by popularity so we get real releases.
 function searchInternetArchive(query) {
   return new Promise((resolve, reject) => {
@@ -248,7 +261,7 @@ function searchInternetArchive(query) {
   });
 }
 
-// Free Music Archive — scrape the search results for a track whose link slug
+// Free Music Archive, scrape the search results for a track whose link slug
 // actually matches the query. FMA shows "featured" tracks even when there are no
 // real results, so we must verify the match instead of grabbing the first link
 // (otherwise we'd return an unrelated song with a faked title).
@@ -303,7 +316,7 @@ function searchFMA(query) {
 //
 // Order matters: real lossless sources (Internet Archive, Free Music Archive)
 // come first. YouTube is only used as a last resort when allowYouTubeFallback is
-// true — because YouTube audio is ~256 kbps AAC, so converting it to FLAC/WAV
+// true, because YouTube audio is ~256 kbps AAC, so converting it to FLAC/WAV
 // gives a lossless *container* with lossy audio inside (not a true master).
 //
 // - When the user explicitly picks FLAC/WAV → allowYouTubeFallback = false, so we
@@ -311,19 +324,19 @@ function searchFMA(query) {
 // - For the playlist auto-priority path → allowYouTubeFallback = true, because
 //   there YouTube MP3 is the intended bottom tier anyway.
 async function searchLossless(query, allowYouTubeFallback = false) {
-  // 1) Internet Archive — genuine lossless (FLAC/WAV/AIFF). Strict title match.
+  // 1) Internet Archive, genuine lossless (FLAC/WAV/AIFF). Strict title match.
   try {
     const ia = await searchInternetArchiveSingleTrack(query);
     if (ia?.url) return { ...ia, source: "Internet Archive" };
   } catch {}
 
-  // 2) Free Music Archive — genuine lossless / high-quality originals.
+  // 2) Free Music Archive, genuine lossless / high-quality originals.
   try {
     const fma = await searchFMA(query);
     if (fma?.url) return { ...fma, source: "Free Music Archive" };
   } catch {}
 
-  // 3) YouTube — ONLY if explicitly allowed (lossy source; container-lossless).
+  // 3) YouTube, ONLY if explicitly allowed (lossy source; container-lossless).
   if (allowYouTubeFallback) {
     try {
       const yt = await searchMusicApi(query, false);
@@ -386,7 +399,7 @@ function searchInternetArchiveSingleTrack(query) {
               // Reject mashups/bootlegs/covers etc.
               if (badWords.some((bw) => haystack.includes(bw))) continue;
 
-              // Require (almost) every query word to be present — strict match.
+              // Require (almost) every query word to be present, strict match.
               const matched = queryWords.filter((w) => haystack.includes(w)).length;
               const needed = Math.max(queryWords.length - 1, Math.ceil(queryWords.length * 0.8));
               if (matched < needed) continue;
@@ -423,23 +436,33 @@ function sanitizeFilename(name) {
     .slice(0, 200);
 }
 
-// format: "mp3" (default, 320kbps) | "flac" | "wav" — lossless formats ask
+// format: "mp3" (default, 320kbps) | "flac" | "wav", lossless formats ask
 // yt-dlp for the best available audio and convert without re-compressing.
 async function downloadTrack(url, trackId, title, onProgress, format = "mp3") {
   return new Promise((resolve, reject) => {
     const fmt = ["flac", "wav"].includes(format) ? format : "mp3";
     const safeTitle = sanitizeFilename(title || trackId);
-    const fileName = `${safeTitle}.${fmt}`;
-    const outputPath = path.join(DOWNLOADS_DIR, fileName);
+    const dateFolder = todayFolder();
+    const dayDir = path.join(DOWNLOADS_DIR, dateFolder);
+    if (!fs.existsSync(dayDir)) {
+      fs.mkdirSync(dayDir, { recursive: true });
+    }
+    // fileName is relative to DOWNLOADS_DIR (always "/" separated) because it
+    // is handed to the client and appended to the /downloads/ static route.
+    const fileName = `${dateFolder}/${safeTitle}.${fmt}`;
+    const outputPath = path.join(dayDir, `${safeTitle}.${fmt}`);
 
     const args = [
+      // Point yt-dlp at our resolved ffmpeg rather than trusting PATH, the
+      // audio conversion below cannot run without it.
+      ...ffmpegArgs(),
       "--extract-audio",
       "--audio-format",
       fmt,
       // 320K only applies to lossy; lossless formats use best quality (0)
       "--audio-quality",
       fmt === "mp3" ? "320K" : "0",
-      // Only ever grab ONE item — never expand a playlist/album into many files.
+      // Only ever grab ONE item, never expand a playlist/album into many files.
       "--no-playlist",
       "--playlist-items",
       "1",
@@ -449,7 +472,7 @@ async function downloadTrack(url, trackId, title, onProgress, format = "mp3") {
       url,
     ];
 
-    const proc = spawn("yt-dlp", args);
+    const proc = spawn(ytDlpPath(), args);
 
     proc.stdout.on("data", (data) => {
       const text = data.toString();
@@ -460,13 +483,30 @@ async function downloadTrack(url, trackId, title, onProgress, format = "mp3") {
       }
     });
 
-    proc.stderr.on("data", () => {});
+    // Keep the last stderr lines so a failure reports *why* (e.g. a YouTube 403
+    // from a stale yt-dlp) instead of a bare exit code.
+    let errTail = "";
+    proc.stderr.on("data", (data) => {
+      errTail = (errTail + data.toString()).slice(-2000);
+    });
 
     proc.on("close", (code) => {
       if (code === 0) {
         resolve({ filePath: outputPath, fileName });
       } else {
-        reject(new Error(`yt-dlp download failed (exit code ${code})`));
+        const detail = errTail
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .filter((l) => l.startsWith("ERROR:") || /^WARNING:.*(update|older)/i.test(l))
+          .slice(-2)
+          .join(" | ");
+        reject(
+          new Error(
+            detail
+              ? `yt-dlp download failed: ${detail}`
+              : `yt-dlp download failed (exit code ${code})`
+          )
+        );
       }
     });
 
@@ -485,7 +525,7 @@ function isSoundCloudUrl(input) {
 async function getSoundCloudTracks(url) {
   return new Promise((resolve, reject) => {
     execFile(
-      "yt-dlp",
+      ytDlpPath(),
       [
         "--flat-playlist",
         "--no-download",
@@ -531,6 +571,7 @@ async function getSoundCloudTracks(url) {
 }
 
 module.exports = {
+  DOWNLOADS_DIR,
   searchMusicApi,
   searchExtendedMix,
   searchOriginal,

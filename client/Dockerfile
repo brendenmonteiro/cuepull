@@ -1,4 +1,4 @@
-# ── DJ_CORE frontend (Next.js) ───────────────────────────────────────────────
+#  DJ_CORE frontend (Next.js)
 # Multi-stage: build with full deps, then run a tiny standalone bundle.
 
 # 1. Build stage
@@ -12,7 +12,7 @@ ARG NEXT_PUBLIC_SERVER_URL
 ENV NEXT_PUBLIC_SERVER_URL=$NEXT_PUBLIC_SERVER_URL
 RUN npm run build
 
-# 2. Run stage — only the standalone output, no dev deps or source.
+# 2. Run stage, only the standalone output, no dev deps or source.
 FROM node:20-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production

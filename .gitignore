@@ -6,7 +6,7 @@ node_modules/
 client/.next/
 client/out/
 
-# env & secrets — never commit these
+# env & secrets, never commit these
 .env
 **/.env
 **/.env.local
@@ -21,3 +21,16 @@ downloads/
 # logs / os
 *.log
 .DS_Store
+
+# desktop app
+dist/
+client/out/
+resources/bin/
+node_modules/
+
+# build artifacts
+*.tsbuildinfo
+
+# bundled binaries are fetched by scripts/fetch-binaries.js, not committed
+# (resources/bin/ is ignored above; resources/icon.ico IS committed)
+!resources/icon.ico

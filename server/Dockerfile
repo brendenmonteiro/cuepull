@@ -1,4 +1,4 @@
-# ── DJ_CORE backend ──────────────────────────────────────────────────────────
+#  DJ_CORE backend
 # Node + yt-dlp + ffmpeg, all in one image.
 FROM node:20-slim
 
@@ -17,7 +17,7 @@ RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o 
 
 WORKDIR /app
 
-# Install node deps first (layer caching — only re-runs if package.json changes)
+# Install node deps first (layer caching, only re-runs if package.json changes)
 COPY package*.json ./
 RUN npm ci --omit=dev
 

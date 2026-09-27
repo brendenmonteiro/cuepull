@@ -8,6 +8,8 @@ interface TrackCardProps {
   index: number;
   onMarkPlayed: (trackId: string) => void;
   onRemove: (trackId: string) => void;
+  onDownload: (trackId: string) => void;
+  busy?: boolean;
 }
 
 type StatusInfo = { label: string; icon: string; inverted: boolean };
@@ -16,16 +18,18 @@ const STATUS: Record<string, StatusInfo> = {
   pending:     { label: "PENDING",         icon: "hourglass_empty", inverted: false },
   searching:   { label: "SEARCHING...",    icon: "sync",            inverted: true  },
   found:       { label: "FOUND EXTENDED",  icon: "check_circle",    inverted: true  },
+  staged:      { label: "READY TO GET",    icon: "download_for_offline", inverted: false },
   downloading: { label: "DOWNLOADING...",  icon: "cloud_download",  inverted: true  },
   ready:       { label: "READY",           icon: "check_circle",    inverted: false },
   played:      { label: "PLAYED",          icon: "done_all",        inverted: false },
   error:       { label: "ERROR",           icon: "error",           inverted: false },
 };
 
-export function TrackCard({ track, index, onMarkPlayed, onRemove }: TrackCardProps) {
+export function TrackCard({ track, index, onMarkPlayed, onRemove, onDownload, busy }: TrackCardProps) {
   const sm = STATUS[track.status] ?? STATUS.pending;
   const isActive = sm.inverted;
   const isReady = track.status === "ready";
+  const isStaged = track.status === "staged";
   const isError = track.status === "error";
   const isPlayed = track.status === "played";
 
@@ -112,27 +116,30 @@ export function TrackCard({ track, index, onMarkPlayed, onRemove }: TrackCardPro
             <span className="hidden sm:inline">{sm.label}</span>
           </span>
 
-          {/* Action buttons — visible on hover */}
+          {/* Action buttons, visible on hover */}
           <div className={`flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ${isActive ? "text-on-primary-container" : "text-secondary"}`}>
+            {(isStaged || isReady) && (
+              <button
+                onClick={() => onDownload(track.trackId)}
+                disabled={busy}
+                className="material-symbols-outlined text-[16px] hover:text-primary transition-none disabled:opacity-40"
+                title={
+                  isStaged
+                    ? `Download ${(track.meta?.format ?? "mp3").toUpperCase()}`
+                    : "Save a copy"
+                }
+              >
+                download
+              </button>
+            )}
             {isReady && (
-              <>
-                <a
-                  href={`${process.env.NEXT_PUBLIC_SERVER_URL}/downloads/${encodeURIComponent(track.meta?.fileName ?? `${track.trackId}.mp3`)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="material-symbols-outlined text-[16px] hover:text-primary transition-none cursor-pointer"
-                  title="Download MP3"
-                >
-                  download
-                </a>
-                <button
-                  onClick={() => onMarkPlayed(track.trackId)}
-                  className="material-symbols-outlined text-[16px] hover:text-primary transition-none"
-                  title="Mark as played"
-                >
-                  play_arrow
-                </button>
-              </>
+              <button
+                onClick={() => onMarkPlayed(track.trackId)}
+                className="material-symbols-outlined text-[16px] hover:text-primary transition-none"
+                title="Mark as played"
+              >
+                play_arrow
+              </button>
             )}
             <button
               onClick={() => onRemove(track.trackId)}

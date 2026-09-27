@@ -1,0 +1,72 @@
+{
+  "name": "dj-core",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DJ Core \u2014 personal track downloader (desktop)",
+  "main": "electron/main.js",
+  "scripts": {
+    "build:ui": "node scripts/build-ui.js",
+    "start": "electron electron",
+    "start:debug": "electron electron --debug",
+    "pack": "npm run fetch:bin && npm run build:ui && electron-builder --dir",
+    "dist": "npm run fetch:bin && npm run build:ui && electron-builder",
+    "fetch:bin": "node scripts/fetch-binaries.js"
+  },
+  "devDependencies": {
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.brend.djcore",
+    "productName": "DJ Core",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "server/**/*",
+      "client/out/**/*",
+      "!server/.env",
+      "!server/.env.example",
+      "!server/.ssl/**",
+      "!server/downloads/**",
+      "!**/node_modules/nodemon/**",
+      "!**/node_modules/.bin/**",
+      "!**/*.map"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "server/**/*",
+      "client/out/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/bin",
+        "to": "bin",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "resources/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "DJ Core"
+    }
+  },
+  "license": "MIT",
+  "author": "Brenden Monteiro"
+}

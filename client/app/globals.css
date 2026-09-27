@@ -2,6 +2,17 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Self-hosted so icons work offline and inside the packaged desktop app.
+   Loaded from the CDN previously, which rendered every icon as literal text
+   (e.g. "download", "more_vert") without a network connection. */
+@font-face {
+  font-family: 'Material Symbols Outlined';
+  font-style: normal;
+  font-weight: 100 700;
+  font-display: block;
+  src: url('/fonts/material-symbols.woff2') format('woff2');
+}
+
 @layer base {
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
