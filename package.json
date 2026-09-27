@@ -2,7 +2,15 @@
   "name": "cuepull",
   "version": "1.0.0",
   "private": true,
-  "description": "Cuepull \u2014 personal track downloader (desktop)",
+  "description": "Cuepull, a desktop track downloader for building a DJ library",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/brendenmonteiro/cuepull.git"
+  },
+  "homepage": "https://github.com/brendenmonteiro/cuepull#readme",
+  "bugs": {
+    "url": "https://github.com/brendenmonteiro/cuepull/issues"
+  },
   "main": "electron/main.js",
   "scripts": {
     "build:ui": "node scripts/build-ui.js",

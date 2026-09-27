@@ -1,7 +1,7 @@
 {
   "name": "cuepull-server",
   "version": "1.0.0",
-  "description": "DJ Track Request WebSocket Server",
+  "description": "Cuepull backend: search, download and queue over WebSocket",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
