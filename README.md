@@ -35,9 +35,28 @@ Download `Cuepull Setup <version>.exe` from [Releases](../../releases) and run
 it. It installs for your user only, so there is no admin prompt, and it ships
 its own copies of yt-dlp and ffmpeg. Nothing else to install.
 
-Windows SmartScreen will warn you the first time because the installer is not
-code signed. Click More info, then Run anyway. If you would rather not, build
-it yourself with the steps below.
+### About the SmartScreen warning
+
+The installer is not code signed, so Windows shows a blue "Windows protected
+your PC" screen the first time. Click **More info**, then **Run anyway**.
+
+That warning means Windows has not seen this file enough times to trust it,
+not that anything is wrong with it. Code signing certificates cost a few
+hundred dollars a year, which is hard to justify for a free tool.
+
+If you would rather verify the download than take my word for it, every
+release ships a `SHA256SUMS.txt`. Check your copy matches:
+
+```powershell
+Get-FileHash "Cuepull Setup 1.0.0.exe" -Algorithm SHA256
+```
+
+Compare the result against the line in `SHA256SUMS.txt`. If they match, the
+file is byte for byte the one that was built. If they do not, delete it and
+download again.
+
+You can also build the installer yourself with the steps below, which avoids
+the warning question entirely.
 
 ## Build it yourself
 
@@ -227,6 +246,21 @@ code contains no `eval`, and yt-dlp is never passed `--exec` or plugin flags.
 **Dependencies.** `npm audit` reports zero vulnerabilities in what ships. Next
 is a build-time dependency only, since the UI is exported to static files and
 no Next server runs.
+
+**Malformed input cannot crash it.** Every socket handler validates its payload
+and runs inside a guard, so a bad message is logged and answered rather than
+taking the process down. Track ids are checked against a uuid pattern before
+they reach the queue or the filesystem. Fuzzed with null, wrong types, oversized
+strings and prototype pollution attempts.
+
+**The page is locked down by CSP.** The UI loads scripts, styles, fonts and
+media only from itself, cannot be framed, and cannot submit forms anywhere.
+Combined with the sandbox, an injected script would have very little to work
+with.
+
+**Checksums.** `npm run dist` writes `dist/SHA256SUMS.txt` next to the
+installer, and the build verifies yt-dlp against its published hash before
+packaging.
 
 Files land where you tell them. Nothing is written until you press download,
 and the save dialog is a normal Windows one.

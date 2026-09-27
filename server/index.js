@@ -35,7 +35,38 @@ const app = express();
 if (!DESKTOP) {
   app.use(cors({ origin: CLIENT_ORIGIN }));
 }
-app.use(express.json());
+app.use(express.json({ limit: "64kb" }));
+
+// The UI is our own static build and loads nothing from anywhere else, so it
+// can be locked down hard. This also limits what an injected script could do
+// if track metadata ever ended up rendered as markup.
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader(
+    "Content-Security-Policy",
+    [
+      "default-src 'self'",
+      // Next.js injects inline bootstrap scripts, and the theme script runs
+      // before paint, so 'unsafe-inline' is required for styles and scripts.
+      "script-src 'self' 'unsafe-inline'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data:",
+      "font-src 'self'",
+      "media-src 'self'",
+      "connect-src 'self' ws: wss:",
+      "object-src 'none'",
+      "frame-ancestors 'none'",
+      "base-uri 'self'",
+      "form-action 'none'",
+    ].join("; ")
+  );
+  next();
+});
+
+// Do not advertise the framework.
+app.disable("x-powered-by");
 
 //  Health check
 app.get("/health", (req, res) => {
@@ -44,8 +75,10 @@ app.get("/health", (req, res) => {
 
 // Lets the UI warn about a missing yt-dlp/ffmpeg instead of failing per-track.
 app.get("/api/binaries", (req, res) => {
-  const { ytDlp, ffmpeg, missing } = getBinaries();
-  res.json({ ytDlp, ffmpeg, missing, ok: missing.length === 0 });
+  const { missing } = getBinaries();
+  // Report only whether the tools were found. The resolved paths contain the
+  // user's home directory, and the UI has no use for them.
+  res.json({ missing, ok: missing.length === 0 });
 });
 
 //  Static downloads
@@ -102,6 +135,16 @@ httpServer.listen(PORT, HOST, () => {
   if (process.send) {
     process.send({ type: "listening", port: actualPort, downloadsDir: DOWNLOADS_DIR });
   }
+});
+
+// Last resort. The socket handlers have their own guards, but a crash in any
+// other async path would otherwise kill the server and leave the app window
+// showing a dead UI with no explanation.
+process.on("uncaughtException", (err) => {
+  console.error("[server] uncaught exception:", err && err.stack ? err.stack : err);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[server] unhandled rejection:", reason);
 });
 
 function shutdown() {

@@ -17,8 +17,9 @@
     "start": "electron electron",
     "start:debug": "electron electron --debug",
     "pack": "npm run fetch:bin && npm run build:ui && electron-builder --dir",
-    "dist": "npm run fetch:bin && npm run build:ui && electron-builder",
-    "fetch:bin": "node scripts/fetch-binaries.js"
+    "dist": "npm run fetch:bin && npm run build:ui && electron-builder && npm run checksums",
+    "fetch:bin": "node scripts/fetch-binaries.js",
+    "checksums": "node scripts/checksums.js"
   },
   "devDependencies": {
     "electron": "^44.4.5",
@@ -65,7 +66,15 @@
           ]
         }
       ],
-      "icon": "resources/icon.ico"
+      "icon": "resources/icon.ico",
+      "signtoolOptions": {
+        "publisherName": "Brenden Monteiro",
+        "signingHashAlgorithms": [
+          "sha256"
+        ],
+        "rfc3161TimeStampServer": "http://timestamp.digicert.com"
+      },
+      "signAndEditExecutable": true
     },
     "nsis": {
       "oneClick": false,

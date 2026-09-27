@@ -30,6 +30,33 @@ const STATUS = {
   ERROR: "error",
 };
 
+// Input hardening. Every payload below arrives over a socket, so none of it
+// can be trusted to be the right shape. A destructure of null used to throw
+// straight out of the handler and take the whole process down with it.
+
+// Track ids are uuids we generated. Anything else is rejected outright, which
+// keeps unexpected types from reaching the queue or the filesystem.
+const TRACK_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isTrackId = (v) => typeof v === "string" && TRACK_ID_RE.test(v);
+
+// A search box should never receive a novel-length string.
+const MAX_QUERY = 500;
+
+// Wraps a handler so a bad payload or an unexpected throw is logged and
+// answered, never fatal. `ack` is called when the client passed a callback.
+function safeHandler(name, fn) {
+  return async (payload, ack) => {
+    try {
+      await fn(payload && typeof payload === "object" ? payload : {}, ack);
+    } catch (err) {
+      console.error(`[Socket] ${name} failed:`, err.message);
+      if (typeof ack === "function") {
+        ack({ ok: false, error: "Request failed." });
+      }
+    }
+  };
+}
+
 function initSocketManager(io) {
   io.on("connection", (socket) => {
     console.log(`[Socket] Client connected: ${socket.id}`);
@@ -42,20 +69,26 @@ function initSocketManager(io) {
     });
 
     //  User chooses Extended Mix or Original
-    socket.on("request:version-choice", ({ trackId, version }) => {
+    socket.on("request:version-choice", safeHandler("version-choice", ({ trackId, version }) => {
+      if (!isTrackId(trackId)) return;
+      if (version !== "extended" && version !== "original" && version !== "skip") return;
       const pending = pendingChoices.get(trackId);
       if (!pending) return;
       clearTimeout(pending.timeout);
       pendingChoices.delete(trackId);
       pending.resolve(version);
-    });
+    }));
 
     //  New track request
     // format: "mp3" (default) | "flac" | "wav". Lossless formats route to the
     // legitimate lossless sources (Bandcamp / Internet Archive / FMA).
-    socket.on("request:submit", async ({ songName, format }) => {
+    socket.on("request:submit", safeHandler("submit", async ({ songName, format }) => {
       if (!songName || typeof songName !== "string" || !songName.trim()) {
         socket.emit("request:error", { message: "Please enter a song name." });
+        return;
+      }
+      if (songName.length > MAX_QUERY) {
+        socket.emit("request:error", { message: "That search is too long." });
         return;
       }
 
@@ -150,10 +183,14 @@ function initSocketManager(io) {
       broadcastToDJ(io, "dj:track-added", serializeTrack(track));
       broadcastToDJ(io, "queue:sync", serializeQueue());
       processSongWithChoicePipeline(io, socket, trackId, trimmed, fmt);
-    });
+    }));
 
     //  Commit a staged track (per-track Download button)
-    socket.on("dj:download", async ({ trackId }, ack) => {
+    socket.on("dj:download", safeHandler("download", async ({ trackId }, ack) => {
+      if (!isTrackId(trackId)) {
+        if (typeof ack === "function") ack({ ok: false, error: "Unknown track." });
+        return;
+      }
       try {
         const fileName = await commitDownload(io, socket, trackId);
         if (typeof ack === "function") ack({ ok: true, trackId, fileName });
@@ -161,12 +198,12 @@ function initSocketManager(io) {
         pipelineError(io, socket, trackId, err.message);
         if (typeof ack === "function") ack({ ok: false, trackId, error: err.message });
       }
-    });
+    }));
 
     //  Commit every staged track (Download All)
     // Sequential on purpose: parallel yt-dlp processes compete for bandwidth
     // and make the per-track progress bars meaningless.
-    socket.on("dj:download-all", async (_payload, ack) => {
+    socket.on("dj:download-all", safeHandler("download-all", async (_payload, ack) => {
       const pending = Array.from(trackQueue.values())
         .filter((t) => t.status === STATUS.STAGED)
         .map((t) => t.trackId);
@@ -182,23 +219,24 @@ function initSocketManager(io) {
         }
       }
       if (typeof ack === "function") ack({ ok: true, results });
-    });
+    }));
 
-    socket.on("dj:mark-played", ({ trackId }) => {
-      if (!trackQueue.has(trackId)) return;
+    socket.on("dj:mark-played", safeHandler("mark-played", ({ trackId }) => {
+      if (!isTrackId(trackId) || !trackQueue.has(trackId)) return;
       updateTrack(trackId, { status: STATUS.PLAYED });
       broadcastToDJ(io, "queue:sync", serializeQueue());
-    });
+    }));
 
-    socket.on("dj:clear-queue", () => {
+    socket.on("dj:clear-queue", safeHandler("clear-queue", () => {
       trackQueue.clear();
       broadcastToDJ(io, "queue:sync", []);
-    });
+    }));
 
-    socket.on("dj:remove-track", ({ trackId }) => {
+    socket.on("dj:remove-track", safeHandler("remove-track", ({ trackId }) => {
+      if (!isTrackId(trackId)) return;
       trackQueue.delete(trackId);
       broadcastToDJ(io, "queue:sync", serializeQueue());
-    });
+    }));
 
     socket.on("disconnect", () => {
       console.log(`[Socket] Client disconnected: ${socket.id}`);
