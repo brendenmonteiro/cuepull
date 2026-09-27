@@ -15,7 +15,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "DJ_CORE",
+  title: "Cratedigger",
   description: "Personal DJ track management system",
 };
 
@@ -23,6 +23,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable}`}>
       <head>
+        {/* Applies the saved theme before first paint, so a dark-mode user
+            does not get a white flash on every launch. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem('cratedigger-theme');if(t==='dark'||t==='light'){document.documentElement.setAttribute('data-theme',t);}}catch(e){}})();`,
+          }}
+        />
         {/* Preload the icon font: it is large, and without this the icons in
             the first painted frame (the header) render as literal glyph boxes
             and never repaint. */}

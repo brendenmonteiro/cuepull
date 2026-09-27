@@ -1,4 +1,4 @@
-# DJ Core
+# Cratedigger
 
 A desktop app for building a DJ library. Type a track name or paste a link,
 pick a format, and it finds a source and pulls down the audio. Nothing is
@@ -31,7 +31,7 @@ that row, or Download All. Then you choose where the file goes.
 
 ## Install
 
-Download `DJ Core Setup <version>.exe` from [Releases](../../releases) and run
+Download `Cratedigger Setup <version>.exe` from [Releases](../../releases) and run
 it. It installs for your user only, so there is no admin prompt, and it ships
 its own copies of yt-dlp and ffmpeg. Nothing else to install.
 
@@ -42,8 +42,8 @@ it yourself with the steps below.
 ## Build it yourself
 
 ```bash
-git clone https://github.com/brendenmonteiro/dj-core.git
-cd dj-core
+git clone https://github.com/brendenmonteiro/cratedigger.git
+cd cratedigger
 npm install
 npm run dist
 ```
@@ -82,12 +82,12 @@ Fetched files land in your library folder, sorted into a folder per day like
 File, Edit Configuration opens a plain text config at:
 
 ```
-%APPDATA%\DJ Core\.env
+%APPDATA%\Cratedigger\.env
 ```
 
 | Setting | What it does |
 |---|---|
-| `DOWNLOADS_DIR` | Where fetched tracks go. Defaults to `Music\DJ Core`. |
+| `DOWNLOADS_DIR` | Where fetched tracks go. Defaults to `Music\Cratedigger`. |
 | `SPOTIFY_CLIENT_ID` | Needed for Spotify playlist links. |
 | `SPOTIFY_CLIENT_SECRET` | Same. |
 | `YTDLP_PATH` | Use a specific yt-dlp instead of the bundled one. |
@@ -155,7 +155,7 @@ Files land in `./downloads/`. Stop it with `docker compose down`.
 ## Layout
 
 ```
-dj-core/
+cratedigger/
 ├── electron/            Desktop shell
 │   ├── main.js          Window, server lifecycle, save dialogs
 │   └── preload.js       The only bridge between page and Electron
@@ -190,6 +190,46 @@ running. `npx kill-port 3001` and start again.
 
 **The desktop app window is blank.** Launch with `npm run start:debug` and
 check the console. Worth reporting if you hit this.
+
+## Security
+
+Worth knowing what the app can and cannot do, since it runs external programs
+and writes files.
+
+**It does not listen on the network.** The desktop app binds its local server
+to `127.0.0.1` on a random free port, so nothing on your network or the
+internet can reach it. Verified at runtime: one loopback listener, no outbound
+connections while idle.
+
+**It only talks to the sites it needs.** youtube.com, archive.org, and the
+Spotify and SoundCloud endpoints when you use those features. No analytics, no
+telemetry, no crash reporting, no account.
+
+**Bundled binaries are checked.** `scripts/fetch-binaries.js` verifies
+`yt-dlp.exe` against the SHA-256 checksum yt-dlp publishes with each release,
+so a tampered download fails the build instead of being packaged.
+
+**The window is locked down.** Node integration off, context isolation on, OS
+sandbox on, webview disabled. The page reaches Electron through one small
+preload with four methods (save a file, pick a folder, save into it, reveal in
+Explorer) and nothing else. Navigation away from the local page is blocked, and
+only http and https links open in your browser.
+
+**Filenames are treated as hostile.** Track titles come from remote metadata,
+so path separators, control characters and Windows reserved device names are
+stripped before anything is written. Saving is confined to the library folder,
+with traversal attempts rejected.
+
+**No shell, no eval.** External programs are called with argument arrays rather
+than a shell string, so nothing you type can be interpreted as a command. The
+code contains no `eval`, and yt-dlp is never passed `--exec` or plugin flags.
+
+**Dependencies.** `npm audit` reports zero vulnerabilities in what ships. Next
+is a build-time dependency only, since the UI is exported to static files and
+no Next server runs.
+
+Files land where you tell them. Nothing is written until you press download,
+and the save dialog is a normal Windows one.
 
 ## Third party tools
 

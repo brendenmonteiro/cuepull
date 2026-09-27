@@ -24,6 +24,7 @@ export default function DashboardPage() {
   const [connected, setConnected] = useState(false);
   const [filter, setFilter] = useState<Filter>("all");
   const [queueId, setQueueId] = useState("----");
+  const [theme, setTheme] = useState<"light" | "dark">("light");
 
   // Search controls
   const [input, setInput] = useState("");
@@ -36,7 +37,25 @@ export default function DashboardPage() {
 
   useEffect(() => {
     setQueueId(Math.floor(Math.random() * 0xffff).toString(16).toUpperCase().padStart(4, "0"));
+    // Pick up whatever the pre-paint script in layout.tsx already applied.
+    const active = document.documentElement.getAttribute("data-theme");
+    if (active === "dark" || active === "light") {
+      setTheme(active);
+    } else {
+      setTheme(window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    }
   }, []);
+
+  const toggleTheme = () => {
+    const next = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    document.documentElement.setAttribute("data-theme", next);
+    try {
+      localStorage.setItem("cratedigger-theme", next);
+    } catch {
+      // Private window or blocked storage. The choice just will not persist.
+    }
+  };
 
   useEffect(() => {
     const socket = socketRef.current;
@@ -133,8 +152,8 @@ export default function DashboardPage() {
       }
       if (!fileName) return;
 
-      if (window.djcore?.isDesktop) {
-        const out = await window.djcore.saveTrack({
+      if (window.cratedigger?.isDesktop) {
+        const out = await window.cratedigger.saveTrack({
           fileName,
           suggestedName: fileName.split("/").pop(),
         });
@@ -164,8 +183,8 @@ export default function DashboardPage() {
     setNotice(null);
 
     let dir: string | undefined;
-    if (window.djcore?.isDesktop) {
-      const pick = await window.djcore.chooseFolder();
+    if (window.cratedigger?.isDesktop) {
+      const pick = await window.cratedigger.chooseFolder();
       if (pick.canceled || !pick.dir) return;
       dir = pick.dir;
     }
@@ -187,8 +206,8 @@ export default function DashboardPage() {
         }
         if (!fileName) continue;
 
-        if (dir && window.djcore?.isDesktop) {
-          const out = await window.djcore.saveTrackTo({
+        if (dir && window.cratedigger?.isDesktop) {
+          const out = await window.cratedigger.saveTrackTo({
             fileName,
             dir,
             suggestedName: fileName.split("/").pop(),
@@ -247,13 +266,21 @@ export default function DashboardPage() {
       <header className="bg-background border-b border-primary flex items-center justify-between px-gutter h-16 sticky top-0 z-40">
         <div className="flex items-center gap-unit">
           <span className="material-symbols-outlined text-primary">graphic_eq</span>
-          <h1 className="font-label-mono text-label-mono tracking-widest text-primary uppercase">DJ_CORE_v1</h1>
+          <h1 className="font-label-mono text-label-mono tracking-widest text-primary uppercase">CRATEDIGGER</h1>
         </div>
         <div className="flex items-center gap-stack-md">
           <span className="font-label-mono text-label-mono text-secondary hidden sm:block">
             {connected ? `LIVE // ${stats.active} ACTIVE` : "OFFLINE"}
           </span>
           <span className={`material-symbols-outlined text-[18px] ${connected ? "text-primary" : "text-secondary"}`}>sensors</span>
+          <button
+            onClick={toggleTheme}
+            className="material-symbols-outlined text-[18px] text-secondary hover:text-primary transition-none"
+            title={theme === "dark" ? "Switch to light" : "Switch to dark"}
+            aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+          >
+            {theme === "dark" ? "light_mode" : "dark_mode"}
+          </button>
         </div>
       </header>
 

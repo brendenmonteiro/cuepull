@@ -1,4 +1,4 @@
-#  DJ_CORE backend
+#  Cratedigger backend
 # Node + yt-dlp + ffmpeg, all in one image.
 FROM node:20-slim
 

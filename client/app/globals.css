@@ -2,6 +2,165 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Palette. Every colour is a variable so the theme can flip at runtime.
+   Light is the default; [data-theme="dark"] on <html> swaps the ramp, and
+   a viewer with no explicit choice follows their OS setting. */
+:root {
+  color-scheme: light;
+  --c-background: #faf9f7;
+  --c-primary: #000000;
+  --c-on-primary: #ffffff;
+  --c-primary-container: #1b1b1b;
+  --c-on-primary-container: #848484;
+  --c-primary-fixed: #e2e2e2;
+  --c-primary-fixed-dim: #c6c6c6;
+  --c-on-primary-fixed: #1b1b1b;
+  --c-on-primary-fixed-variant: #474747;
+  --c-secondary: #5f5e5e;
+  --c-on-secondary: #ffffff;
+  --c-secondary-container: #e4e2e1;
+  --c-on-secondary-container: #656464;
+  --c-secondary-fixed: #e4e2e1;
+  --c-secondary-fixed-dim: #c8c6c6;
+  --c-on-secondary-fixed: #1b1c1c;
+  --c-on-secondary-fixed-variant: #474747;
+  --c-tertiary: #000000;
+  --c-on-tertiary: #ffffff;
+  --c-tertiary-container: #1b1b1b;
+  --c-on-tertiary-container: #848484;
+  --c-tertiary-fixed: #e2e2e2;
+  --c-tertiary-fixed-dim: #c6c6c6;
+  --c-on-tertiary-fixed: #1b1b1b;
+  --c-on-tertiary-fixed-variant: #474747;
+  --c-surface: #faf9f7;
+  --c-surface-dim: #dadad8;
+  --c-surface-bright: #faf9f7;
+  --c-surface-container-lowest: #ffffff;
+  --c-surface-container-low: #f4f3f1;
+  --c-surface-container: #efeeec;
+  --c-surface-container-high: #e9e8e6;
+  --c-surface-container-highest: #e3e2e0;
+  --c-surface-variant: #e3e2e0;
+  --c-surface-tint: #5e5e5e;
+  --c-on-surface: #1a1c1b;
+  --c-on-surface-variant: #4c4546;
+  --c-on-background: #1a1c1b;
+  --c-outline: #7e7576;
+  --c-outline-variant: #cfc4c5;
+  --c-inverse-surface: #2f3130;
+  --c-inverse-on-surface: #f1f1ef;
+  --c-inverse-primary: #c6c6c6;
+  --c-error: #ba1a1a;
+  --c-on-error: #ffffff;
+  --c-error-container: #ffdad6;
+  --c-on-error-container: #93000a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --c-background: #0e0f10;
+    --c-primary: #f2f1ef;
+    --c-on-primary: #0e0f10;
+    --c-primary-container: #e8e7e4;
+    --c-on-primary-container: #6d6d6d;
+    --c-primary-fixed: #2a2a2a;
+    --c-primary-fixed-dim: #3a3a3a;
+    --c-on-primary-fixed: #e8e7e4;
+    --c-on-primary-fixed-variant: #b8b8b8;
+    --c-secondary: #a3a2a0;
+    --c-on-secondary: #0e0f10;
+    --c-secondary-container: #242525;
+    --c-on-secondary-container: #9e9d9b;
+    --c-secondary-fixed: #242525;
+    --c-secondary-fixed-dim: #343535;
+    --c-on-secondary-fixed: #e6e5e3;
+    --c-on-secondary-fixed-variant: #b8b8b8;
+    --c-tertiary: #f2f1ef;
+    --c-on-tertiary: #0e0f10;
+    --c-tertiary-container: #e8e7e4;
+    --c-on-tertiary-container: #6d6d6d;
+    --c-tertiary-fixed: #2a2a2a;
+    --c-tertiary-fixed-dim: #3a3a3a;
+    --c-on-tertiary-fixed: #e8e7e4;
+    --c-on-tertiary-fixed-variant: #b8b8b8;
+    --c-surface: #0e0f10;
+    --c-surface-dim: #0a0b0c;
+    --c-surface-bright: #26282a;
+    --c-surface-container-lowest: #000000;
+    --c-surface-container-low: #141516;
+    --c-surface-container: #181a1b;
+    --c-surface-container-high: #1f2122;
+    --c-surface-container-highest: #282a2b;
+    --c-surface-variant: #282a2b;
+    --c-surface-tint: #a8a8a8;
+    --c-on-surface: #eceae7;
+    --c-on-surface-variant: #bdb7b8;
+    --c-on-background: #eceae7;
+    --c-outline: #8c8486;
+    --c-outline-variant: #4a4344;
+    --c-inverse-surface: #eceae7;
+    --c-inverse-on-surface: #1a1c1b;
+    --c-inverse-primary: #3a3a3a;
+    --c-error: #ffb4ab;
+    --c-on-error: #5c0004;
+    --c-error-container: #93000a;
+    --c-on-error-container: #ffdad6;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --c-background: #0e0f10;
+  --c-primary: #f2f1ef;
+  --c-on-primary: #0e0f10;
+  --c-primary-container: #e8e7e4;
+  --c-on-primary-container: #6d6d6d;
+  --c-primary-fixed: #2a2a2a;
+  --c-primary-fixed-dim: #3a3a3a;
+  --c-on-primary-fixed: #e8e7e4;
+  --c-on-primary-fixed-variant: #b8b8b8;
+  --c-secondary: #a3a2a0;
+  --c-on-secondary: #0e0f10;
+  --c-secondary-container: #242525;
+  --c-on-secondary-container: #9e9d9b;
+  --c-secondary-fixed: #242525;
+  --c-secondary-fixed-dim: #343535;
+  --c-on-secondary-fixed: #e6e5e3;
+  --c-on-secondary-fixed-variant: #b8b8b8;
+  --c-tertiary: #f2f1ef;
+  --c-on-tertiary: #0e0f10;
+  --c-tertiary-container: #e8e7e4;
+  --c-on-tertiary-container: #6d6d6d;
+  --c-tertiary-fixed: #2a2a2a;
+  --c-tertiary-fixed-dim: #3a3a3a;
+  --c-on-tertiary-fixed: #e8e7e4;
+  --c-on-tertiary-fixed-variant: #b8b8b8;
+  --c-surface: #0e0f10;
+  --c-surface-dim: #0a0b0c;
+  --c-surface-bright: #26282a;
+  --c-surface-container-lowest: #000000;
+  --c-surface-container-low: #141516;
+  --c-surface-container: #181a1b;
+  --c-surface-container-high: #1f2122;
+  --c-surface-container-highest: #282a2b;
+  --c-surface-variant: #282a2b;
+  --c-surface-tint: #a8a8a8;
+  --c-on-surface: #eceae7;
+  --c-on-surface-variant: #bdb7b8;
+  --c-on-background: #eceae7;
+  --c-outline: #8c8486;
+  --c-outline-variant: #4a4344;
+  --c-inverse-surface: #eceae7;
+  --c-inverse-on-surface: #1a1c1b;
+  --c-inverse-primary: #3a3a3a;
+  --c-error: #ffb4ab;
+  --c-on-error: #5c0004;
+  --c-error-container: #93000a;
+  --c-on-error-container: #ffdad6;
+}
+
+
 /* Self-hosted so icons work offline and inside the packaged desktop app.
    Loaded from the CDN previously, which rendered every icon as literal text
    (e.g. "download", "more_vert") without a network connection. */
@@ -16,7 +175,7 @@
 @layer base {
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-  body { margin: 0; padding: 0; background-color: #faf9f7; color: #1a1c1b; overscroll-behavior-y: none; }
+  body { margin: 0; padding: 0; background-color: var(--c-background); color: var(--c-on-background); overscroll-behavior-y: none; }
 
   .material-symbols-outlined {
     font-family: 'Material Symbols Outlined';

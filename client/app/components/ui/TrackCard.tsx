@@ -37,7 +37,10 @@ export function TrackCard({ track, index, onMarkPlayed, onRemove, onDownload, bu
 
   return (
     <motion.div
-      layout
+      // layout="position" animates the row moving, but never scales it.
+      // Plain `layout` scales the box to tween size changes, which stretches
+      // the text inside and makes it look smeared on hover.
+      layout="position"
       initial={{ opacity: 0 }}
       animate={{ opacity: isPlayed ? 0.4 : 1 }}
       exit={{ opacity: 0, height: 0, overflow: "hidden" }}

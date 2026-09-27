@@ -76,7 +76,7 @@ export interface SaveResult {
   error?: string;
 }
 
-export interface DjCoreBridge {
+export interface CratediggerBridge {
   isDesktop: true;
   saveTrack(p: { fileName: string; suggestedName?: string }): Promise<SaveResult>;
   chooseFolder(): Promise<{ canceled: boolean; dir?: string }>;
@@ -86,6 +86,6 @@ export interface DjCoreBridge {
 
 declare global {
   interface Window {
-    djcore?: DjCoreBridge;
+    cratedigger?: CratediggerBridge;
   }
 }

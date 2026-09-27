@@ -1,4 +1,4 @@
-#  DJ_CORE frontend (Next.js)
+#  Cratedigger frontend (Next.js)
 # Multi-stage: build with full deps, then run a tiny standalone bundle.
 
 # 1. Build stage

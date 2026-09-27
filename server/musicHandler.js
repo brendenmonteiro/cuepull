@@ -428,12 +428,21 @@ function isBandcampUrl(input) {
   return typeof input === "string" && /bandcamp\.com\//.test(input);
 }
 
+// Titles come from remote metadata, so treat them as hostile. Strips path
+// separators and anything Windows rejects, plus control characters (a NUL can
+// truncate a path in lower-level calls) and the reserved device names.
 function sanitizeFilename(name) {
-  return name
-    .replace(/[/\\:*?"<>|]/g, "")
+  let out = String(name)
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .replace(/[/\:*?"<>|]/g, "")
     .replace(/\s+/g, " ")
     .trim()
+    // Windows silently drops a trailing dot or space, changing the name.
+    .replace(/[. ]+$/, "")
     .slice(0, 200);
+
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(out)) out = "_" + out;
+  return out || "track";
 }
 
 // format: "mp3" (default, 320kbps) | "flac" | "wav", lossless formats ask

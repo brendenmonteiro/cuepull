@@ -8,6 +8,7 @@ const fs = require("fs");
 const path = require("path");
 const https = require("https");
 const { execFileSync } = require("child_process");
+const crypto = require("crypto");
 
 const BIN_DIR = path.join(__dirname, "..", "resources", "bin");
 
@@ -21,7 +22,7 @@ function get(url, dest, redirects = 0) {
   return new Promise((resolve, reject) => {
     if (redirects > 10) return reject(new Error("Too many redirects"));
     https
-      .get(url, { headers: { "User-Agent": "dj-core-build" } }, (res) => {
+      .get(url, { headers: { "User-Agent": "cratedigger-build" } }, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           res.resume();
           return resolve(get(res.headers.location, dest, redirects + 1));
@@ -52,6 +53,46 @@ function get(url, dest, redirects = 0) {
   });
 }
 
+
+// yt-dlp publishes SHA2-256SUMS with every release. Checking it means a
+// tampered or truncated download fails the build instead of being packaged
+// into an installer other people run.
+async function verifyYtDlp(file) {
+  const sumsUrl =
+    "https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS";
+  const tmp = file + ".sums";
+  try {
+    await get(sumsUrl, tmp);
+    const line = fs
+      .readFileSync(tmp, "utf8")
+      .split(/\r?\n/)
+      .find((l) => l.trim().endsWith("yt-dlp.exe"));
+    fs.rmSync(tmp, { force: true });
+    if (!line) {
+      console.warn("  could not find a published checksum, skipping verify");
+      return;
+    }
+    const expected = line.trim().split(/\s+/)[0].toLowerCase();
+    const actual = crypto
+      .createHash("sha256")
+      .update(fs.readFileSync(file))
+      .digest("hex");
+    if (actual !== expected) {
+      fs.rmSync(file, { force: true });
+      throw new Error(
+        `yt-dlp checksum mismatch.
+  expected ${expected}
+  got      ${actual}`
+      );
+    }
+    console.log("  checksum verified");
+  } catch (err) {
+    fs.rmSync(tmp, { force: true });
+    if (/mismatch/.test(err.message)) throw err;
+    console.warn("  checksum check skipped:", err.message);
+  }
+}
+
 async function main() {
   if (process.platform !== "win32") {
     console.error("This script currently fetches Windows x64 binaries only.");
@@ -68,6 +109,7 @@ async function main() {
   } else {
     console.log("Downloading yt-dlp...");
     await get(YTDLP_URL, ytDlp);
+    await verifyYtDlp(ytDlp);
     console.log("  done");
   }
 
