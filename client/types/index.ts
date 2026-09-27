@@ -76,7 +76,7 @@ export interface SaveResult {
   error?: string;
 }
 
-export interface CratediggerBridge {
+export interface CuepullBridge {
   isDesktop: true;
   saveTrack(p: { fileName: string; suggestedName?: string }): Promise<SaveResult>;
   chooseFolder(): Promise<{ canceled: boolean; dir?: string }>;
@@ -86,6 +86,6 @@ export interface CratediggerBridge {
 
 declare global {
   interface Window {
-    cratedigger?: CratediggerBridge;
+    cuepull?: CuepullBridge;
   }
 }

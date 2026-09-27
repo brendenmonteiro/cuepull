@@ -1,7 +1,7 @@
 {
-  "name": "cratedigger-desktop",
+  "name": "cuepull-desktop",
   "version": "1.0.0",
-  "description": "Cratedigger desktop shell",
+  "description": "Cuepull desktop shell",
   "main": "main.js",
   "private": true
 }

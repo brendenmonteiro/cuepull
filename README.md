@@ -1,4 +1,4 @@
-# Cratedigger
+# Cuepull
 
 A desktop app for building a DJ library. Type a track name or paste a link,
 pick a format, and it finds a source and pulls down the audio. Nothing is
@@ -31,7 +31,7 @@ that row, or Download All. Then you choose where the file goes.
 
 ## Install
 
-Download `Cratedigger Setup <version>.exe` from [Releases](../../releases) and run
+Download `Cuepull Setup <version>.exe` from [Releases](../../releases) and run
 it. It installs for your user only, so there is no admin prompt, and it ships
 its own copies of yt-dlp and ffmpeg. Nothing else to install.
 
@@ -42,8 +42,8 @@ it yourself with the steps below.
 ## Build it yourself
 
 ```bash
-git clone https://github.com/brendenmonteiro/cratedigger.git
-cd cratedigger
+git clone https://github.com/brendenmonteiro/cuepull.git
+cd cuepull
 npm install
 npm run dist
 ```
@@ -82,12 +82,12 @@ Fetched files land in your library folder, sorted into a folder per day like
 File, Edit Configuration opens a plain text config at:
 
 ```
-%APPDATA%\Cratedigger\.env
+%APPDATA%\Cuepull\.env
 ```
 
 | Setting | What it does |
 |---|---|
-| `DOWNLOADS_DIR` | Where fetched tracks go. Defaults to `Music\Cratedigger`. |
+| `DOWNLOADS_DIR` | Where fetched tracks go. Defaults to `Music\Cuepull`. |
 | `SPOTIFY_CLIENT_ID` | Needed for Spotify playlist links. |
 | `SPOTIFY_CLIENT_SECRET` | Same. |
 | `YTDLP_PATH` | Use a specific yt-dlp instead of the bundled one. |
@@ -155,7 +155,7 @@ Files land in `./downloads/`. Stop it with `docker compose down`.
 ## Layout
 
 ```
-cratedigger/
+cuepull/
 ├── electron/            Desktop shell
 │   ├── main.js          Window, server lifecycle, save dialogs
 │   └── preload.js       The only bridge between page and Electron

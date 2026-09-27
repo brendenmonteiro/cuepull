@@ -22,7 +22,7 @@ function get(url, dest, redirects = 0) {
   return new Promise((resolve, reject) => {
     if (redirects > 10) return reject(new Error("Too many redirects"));
     https
-      .get(url, { headers: { "User-Agent": "cratedigger-build" } }, (res) => {
+      .get(url, { headers: { "User-Agent": "cuepull-build" } }, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           res.resume();
           return resolve(get(res.headers.location, dest, redirects + 1));

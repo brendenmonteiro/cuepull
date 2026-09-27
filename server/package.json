@@ -1,5 +1,5 @@
 {
-  "name": "cratedigger-server",
+  "name": "cuepull-server",
   "version": "1.0.0",
   "description": "DJ Track Request WebSocket Server",
   "main": "index.js",

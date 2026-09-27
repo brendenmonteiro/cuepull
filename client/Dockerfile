@@ -1,4 +1,4 @@
-#  Cratedigger frontend (Next.js)
+#  Cuepull frontend (Next.js)
 # Multi-stage: build with full deps, then run a tiny standalone bundle.
 
 # 1. Build stage

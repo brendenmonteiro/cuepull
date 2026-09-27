@@ -1,4 +1,4 @@
-#  Cratedigger, full stack in two containers
+#  Cuepull, full stack in two containers
 # Start everything:   docker compose up -d --build
 # Stop everything:    docker compose down
 # View logs:          docker compose logs -f

@@ -51,7 +51,7 @@ export default function DashboardPage() {
     setTheme(next);
     document.documentElement.setAttribute("data-theme", next);
     try {
-      localStorage.setItem("cratedigger-theme", next);
+      localStorage.setItem("cuepull-theme", next);
     } catch {
       // Private window or blocked storage. The choice just will not persist.
     }
@@ -152,8 +152,8 @@ export default function DashboardPage() {
       }
       if (!fileName) return;
 
-      if (window.cratedigger?.isDesktop) {
-        const out = await window.cratedigger.saveTrack({
+      if (window.cuepull?.isDesktop) {
+        const out = await window.cuepull.saveTrack({
           fileName,
           suggestedName: fileName.split("/").pop(),
         });
@@ -183,8 +183,8 @@ export default function DashboardPage() {
     setNotice(null);
 
     let dir: string | undefined;
-    if (window.cratedigger?.isDesktop) {
-      const pick = await window.cratedigger.chooseFolder();
+    if (window.cuepull?.isDesktop) {
+      const pick = await window.cuepull.chooseFolder();
       if (pick.canceled || !pick.dir) return;
       dir = pick.dir;
     }
@@ -206,8 +206,8 @@ export default function DashboardPage() {
         }
         if (!fileName) continue;
 
-        if (dir && window.cratedigger?.isDesktop) {
-          const out = await window.cratedigger.saveTrackTo({
+        if (dir && window.cuepull?.isDesktop) {
+          const out = await window.cuepull.saveTrackTo({
             fileName,
             dir,
             suggestedName: fileName.split("/").pop(),
@@ -266,7 +266,7 @@ export default function DashboardPage() {
       <header className="bg-background border-b border-primary flex items-center justify-between px-gutter h-16 sticky top-0 z-40">
         <div className="flex items-center gap-unit">
           <span className="material-symbols-outlined text-primary">graphic_eq</span>
-          <h1 className="font-label-mono text-label-mono tracking-widest text-primary uppercase">CRATEDIGGER</h1>
+          <h1 className="font-label-mono text-label-mono tracking-widest text-primary uppercase">CUEPULL</h1>
         </div>
         <div className="flex items-center gap-stack-md">
           <span className="font-label-mono text-label-mono text-secondary hidden sm:block">

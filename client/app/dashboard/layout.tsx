@@ -2,7 +2,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Cratedigger 🎛️",
+  title: "Cuepull 🎛️",
   description: "Track request control center",
 };
 

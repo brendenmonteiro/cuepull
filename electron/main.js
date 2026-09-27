@@ -44,9 +44,9 @@ function ensureEnvFile() {
   const legacyDir = path.join(app.getPath("music"), "DJ Core");
   const musicDir = fs.existsSync(legacyDir)
     ? legacyDir
-    : path.join(app.getPath("music"), "Cratedigger");
+    : path.join(app.getPath("music"), "Cuepull");
   const body = [
-    "# Cratedigger configuration",
+    "# Cuepull configuration",
     "",
     "# Where finished tracks are saved. Files land in <DOWNLOADS_DIR>/DD-MM-YYYY/",
     `DOWNLOADS_DIR=${musicDir.replace(/\\/g, "/")}`,
@@ -178,7 +178,7 @@ function buildMenu() {
             const legacy = path.join(app.getPath("music"), "DJ Core");
             let dir = fs.existsSync(legacy)
               ? legacy
-              : path.join(app.getPath("music"), "Cratedigger");
+              : path.join(app.getPath("music"), "Cuepull");
             try {
               const m = fs
                 .readFileSync(envFile, "utf8")
@@ -222,7 +222,7 @@ function createWindow(port) {
     minWidth: 820,
     minHeight: 600,
     backgroundColor: "#faf9f7",
-    title: "Cratedigger",
+    title: "Cuepull",
     show: false,
     webPreferences: {
       // The page is our own static build and needs no Node access.
@@ -301,7 +301,7 @@ function sourcePathFor(fileName) {
 
 function registerSaveHandlers() {
   // One track, with a native Save As dialog.
-  ipcMain.handle("cratedigger:save-track", async (_e, { fileName, suggestedName }) => {
+  ipcMain.handle("cuepull:save-track", async (_e, { fileName, suggestedName }) => {
     const src = sourcePathFor(fileName);
     if (!src) return { saved: false, error: "File not found on disk." };
 
@@ -322,7 +322,7 @@ function registerSaveHandlers() {
   });
 
   // Ask once for a destination folder (used by Download All).
-  ipcMain.handle("cratedigger:choose-folder", async () => {
+  ipcMain.handle("cuepull:choose-folder", async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
       title: "Choose where to save tracks",
       defaultPath: app.getPath("downloads"),
@@ -333,7 +333,7 @@ function registerSaveHandlers() {
   });
 
   // Write one track into an already-chosen folder, no dialog.
-  ipcMain.handle("cratedigger:save-track-to", async (_e, { fileName, dir, suggestedName }) => {
+  ipcMain.handle("cuepull:save-track-to", async (_e, { fileName, dir, suggestedName }) => {
     const src = sourcePathFor(fileName);
     if (!src) return { saved: false, error: "File not found on disk." };
     if (!dir) return { saved: false, error: "No destination folder." };
@@ -356,7 +356,7 @@ function registerSaveHandlers() {
     }
   });
 
-  ipcMain.handle("cratedigger:reveal", async (_e, absPath) => {
+  ipcMain.handle("cuepull:reveal", async (_e, absPath) => {
     if (absPath && fs.existsSync(absPath)) shell.showItemInFolder(absPath);
     return { ok: true };
   });
@@ -380,7 +380,7 @@ if (!app.requestSingleInstanceLock()) {
 
     if (!fs.existsSync(CLIENT_DIR)) {
       dialog.showErrorBox(
-        "Cratedigger, build missing",
+        "Cuepull, build missing",
         `The app UI was not found at:\n${CLIENT_DIR}\n\n` +
           `Run the client build first:\n  cd client\n  BUILD_TARGET=desktop npx next build`
       );
@@ -392,7 +392,7 @@ if (!app.requestSingleInstanceLock()) {
       const port = await startServer();
       createWindow(port);
     } catch (err) {
-      dialog.showErrorBox("Cratedigger, could not start", String(err.message || err));
+      dialog.showErrorBox("Cuepull, could not start", String(err.message || err));
       app.quit();
     }
   });
