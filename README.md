@@ -127,6 +127,24 @@ works already.
 
 ## Settings
 
+Open the menu (the hamburger, top right) for everything configurable:
+
+| Setting | What it does |
+|---|---|
+| Format preference | What to fetch when you have not picked a format for a search. Single formats, fallbacks like "FLAC if available, else MP3", or "best available" which tries WAV, FLAC then MP3 and never fails. |
+| Library folder | Where finished tracks are saved. Takes effect immediately. |
+| Group into folders by date | Off puts everything in one flat folder instead of DD-MM-YYYY subfolders. |
+| Ask Extended Mix or Original | Off decides automatically from the next setting instead of prompting each time. |
+| Prefer Extended Mix in playlists | Which version wins where there is no prompt. |
+| Detect BPM and key | Off skips the analysis pass after each download. |
+| Theme | Light or dark. |
+| Spotify credentials | Only needed for Spotify playlist links. |
+
+Settings are stored in the same folder as the library data and survive
+updates. The old `.env` still works and seeds the defaults on first run.
+
+## Configuration file
+
 File, Edit Configuration opens a plain text config at:
 
 ```

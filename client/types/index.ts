@@ -82,6 +82,7 @@ export interface CuepullBridge {
   chooseFolder(): Promise<{ canceled: boolean; dir?: string }>;
   saveTrackTo(p: { fileName: string; dir: string; suggestedName?: string }): Promise<SaveResult>;
   revealFile(absPath: string): Promise<{ ok: boolean }>;
+  pickLibraryFolder(): Promise<{ canceled: boolean; path?: string }>;
   pickRekordboxXml(): Promise<{ canceled: boolean; path?: string }>;
   pickRekordboxSave(): Promise<{ canceled: boolean; path?: string }>;
 }
@@ -118,4 +119,21 @@ export interface LibraryStats {
   keyCoverage: { known: number; total: number };
   mostPlayed: PlayedRow[];
   playSource: "rekordbox" | "manual" | null;
+}
+
+export type FormatMode =
+  | "mp3" | "flac" | "wav"
+  | "flac-then-mp3" | "wav-then-flac"
+  | "wav-flac-mp3" | "flac-wav-mp3";
+
+export interface AppSettings {
+  formatMode: FormatMode;
+  downloadsDir: string | null;
+  dateFolders: boolean;
+  askExtended: boolean;
+  preferExtended: boolean;
+  analyseOnDownload: boolean;
+  theme: "system" | "light" | "dark";
+  spotifyClientId: string;
+  spotifyClientSecret: string;
 }

@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld("cuepull", {
   revealFile: (absPath) => ipcRenderer.invoke("cuepull:reveal", absPath),
 
   // rekordbox collection exchange.
+  pickLibraryFolder: () => ipcRenderer.invoke("cuepull:pick-library"),
   pickRekordboxXml: () => ipcRenderer.invoke("cuepull:pick-rb-xml"),
   pickRekordboxSave: () => ipcRenderer.invoke("cuepull:pick-rb-save"),
 });

@@ -6,12 +6,22 @@ const { ytDlpPath, ffmpegArgs } = require("./binaries");
 
 // Base library folder. Override with DOWNLOADS_DIR in server/.env to point at
 // your real music library; defaults to ./downloads so a fresh clone still works.
-const DOWNLOADS_DIR = process.env.DOWNLOADS_DIR
-  ? path.resolve(process.env.DOWNLOADS_DIR)
-  : path.join(__dirname, "downloads");
-
-if (!fs.existsSync(DOWNLOADS_DIR)) {
-  fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
+// Resolved on each use so changing the folder in settings takes effect
+// straight away instead of needing a restart. Settings win, then the env
+// value, then a folder next to the server.
+function resolveDownloadsDir() {
+  let configured = null;
+  try {
+    configured = require("./settings").load().downloadsDir;
+  } catch {
+    // settings module not ready during early startup
+  }
+  const dir = configured || process.env.DOWNLOADS_DIR;
+  const abs = dir ? path.resolve(dir) : path.join(__dirname, "downloads");
+  if (!fs.existsSync(abs)) {
+    fs.mkdirSync(abs, { recursive: true });
+  }
+  return abs;
 }
 
 // Tracks are filed under a per-day folder, DD-MM-YYYY in local time, so a set
@@ -469,14 +479,25 @@ async function downloadTrack(url, trackId, title, onProgress, format = "mp3") {
   return new Promise((resolve, reject) => {
     const fmt = ["flac", "wav"].includes(format) ? format : "mp3";
     const safeTitle = sanitizeFilename(title || trackId);
-    const dateFolder = todayFolder();
-    const dayDir = path.join(DOWNLOADS_DIR, dateFolder);
+    // Date folders are optional; some people prefer one flat library.
+    let useDateFolders = true;
+    try {
+      useDateFolders = require("./settings").load().dateFolders !== false;
+    } catch {
+      // settings unavailable, keep the default
+    }
+    const dateFolder = useDateFolders ? todayFolder() : "";
+    const dayDir = dateFolder
+      ? path.join(resolveDownloadsDir(), dateFolder)
+      : resolveDownloadsDir();
     if (!fs.existsSync(dayDir)) {
       fs.mkdirSync(dayDir, { recursive: true });
     }
     // fileName is relative to DOWNLOADS_DIR (always "/" separated) because it
     // is handed to the client and appended to the /downloads/ static route.
-    const fileName = `${dateFolder}/${safeTitle}.${fmt}`;
+    const fileName = dateFolder
+      ? `${dateFolder}/${safeTitle}.${fmt}`
+      : `${safeTitle}.${fmt}`;
     const outputPath = path.join(dayDir, `${safeTitle}.${fmt}`);
 
     const args = [
@@ -598,7 +619,10 @@ async function getSoundCloudTracks(url) {
 }
 
 module.exports = {
-  DOWNLOADS_DIR,
+  get DOWNLOADS_DIR() {
+    return resolveDownloadsDir();
+  },
+  resolveDownloadsDir,
   searchMusicApi,
   searchExtendedMix,
   searchOriginal,

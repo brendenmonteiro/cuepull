@@ -358,6 +358,17 @@ function registerSaveHandlers() {
     }
   });
 
+  // Choose where the library lives.
+  ipcMain.handle("cuepull:pick-library", async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+      title: "Choose your music library folder",
+      defaultPath: app.getPath("music"),
+      properties: ["openDirectory", "createDirectory"],
+    });
+    if (canceled || !filePaths?.length) return { canceled: true };
+    return { canceled: false, path: filePaths[0] };
+  });
+
   // Choose a rekordbox export to read play counts and cue points from.
   ipcMain.handle("cuepull:pick-rb-xml", async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {

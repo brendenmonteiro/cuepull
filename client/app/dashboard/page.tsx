@@ -3,9 +3,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { connectSocket } from "@/lib/socket";
-import { Track, TrackMeta, LibraryStats } from "@/types";
+import { Track, TrackMeta, LibraryStats, AppSettings } from "@/types";
 import { TrackCard } from "@/app/components/ui/TrackCard";
 import { CrateIntel } from "@/app/components/ui/CrateIntel";
+import { SettingsDrawer } from "@/app/components/ui/SettingsDrawer";
 
 type Filter = "all" | "active" | "staged" | "ready" | "played";
 type Format = "mp3" | "flac" | "wav";
@@ -27,6 +28,8 @@ export default function DashboardPage() {
   const [queueId, setQueueId] = useState("----");
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [libStats, setLibStats] = useState<LibraryStats | null>(null);
+  const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Search controls
   const [input, setInput] = useState("");
@@ -65,6 +68,7 @@ export default function DashboardPage() {
     socket.on("disconnect", () => setConnected(false));
     socket.on("queue:sync", (q: Track[]) => setQueue(q));
     socket.on("stats:update", (payload: LibraryStats) => setLibStats(payload));
+    socket.on("settings:update", (payload: AppSettings) => setSettings(payload));
     socket.on("dj:track-added", (track: Track) => {
       setQueue((prev) => prev.find((t) => t.trackId === track.trackId) ? prev : [...prev, track]);
     });
@@ -81,7 +85,7 @@ export default function DashboardPage() {
       setChoice({ open: true, trackId, hasExtended, extendedTitle });
     });
     return () => {
-      ["connect","disconnect","queue:sync","dj:track-added","dj:track-updated","dj:progress","request:extended-result","stats:update"]
+      ["connect","disconnect","queue:sync","dj:track-added","dj:track-updated","dj:progress","request:extended-result","stats:update","settings:update"]
         .forEach((e) => socket.off(e));
     };
   }, []);
@@ -240,6 +244,10 @@ export default function DashboardPage() {
     );
   }, [queue]);
 
+  const saveSettings = useCallback((patch: Partial<AppSettings>) => {
+    socketRef.current.emit("settings:save", patch);
+  }, []);
+
   // rekordbox exchange. Export writes BPM and key so tracks import already
   // analysed; import pulls back the play counts and cue points this app has
   // no way to know.
@@ -307,6 +315,14 @@ export default function DashboardPage() {
             {connected ? `LIVE // ${stats.active} ACTIVE` : "OFFLINE"}
           </span>
           <span className={`material-symbols-outlined text-[18px] ${connected ? "text-primary" : "text-secondary"}`}>sensors</span>
+          <button
+            onClick={() => setSettingsOpen(true)}
+            className="material-symbols-outlined text-[20px] text-secondary hover:text-primary transition-none"
+            title="Settings"
+            aria-label="Open settings"
+          >
+            menu
+          </button>
           <button
             onClick={toggleTheme}
             className="material-symbols-outlined text-[18px] text-secondary hover:text-primary transition-none"
@@ -522,6 +538,15 @@ export default function DashboardPage() {
           </div>
         </section>
       </main>
+
+      <SettingsDrawer
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        settings={settings}
+        onSave={saveSettings}
+        theme={theme}
+        onTheme={toggleTheme}
+      />
 
       {/*  Extended / Original prompt modal  */}
       <AnimatePresence>

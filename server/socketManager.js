@@ -5,6 +5,7 @@ const library = require("./library");
 const stats = require("./stats");
 const { analyseFile } = require("./analyser");
 const rekordbox = require("./rekordbox");
+const settings = require("./settings");
 const { DOWNLOADS_DIR } = require("./musicHandler");
 const {
   searchExtendedMix,
@@ -99,6 +100,7 @@ function initSocketManager(io) {
     socket.on("dj:join", () => {
       socket.join(DJ_ROOM);
       socket.emit("stats:update", stats.build());
+      socket.emit("settings:update", settings.load());
       console.log(`[Socket] DJ dashboard joined: ${socket.id}`);
       socket.emit("queue:sync", serializeQueue());
     });
@@ -128,7 +130,11 @@ function initSocketManager(io) {
       }
 
       const trimmed = songName.trim();
-      const fmt = ["flac", "wav"].includes(format) ? format : "mp3";
+      // An explicit pick in the UI wins; otherwise fall back to the stored
+      // preference, whose first entry is the format to try first.
+      const fmt = ["flac", "wav", "mp3"].includes(format)
+        ? format
+        : settings.formatChain()[0];
       const lossless = fmt !== "mp3";
 
       //  Spotify playlist / album / track
@@ -325,6 +331,21 @@ function initSocketManager(io) {
       } catch (err) {
         ack({ ok: false, error: err.message });
       }
+    }));
+
+    socket.on("settings:get", safeHandler("settings-get", (_p, ack) => {
+      const cur = settings.load();
+      socket.emit("settings:update", cur);
+      if (typeof ack === "function") {
+        ack({ ok: true, settings: cur, formatModes: settings.FORMAT_MODES });
+      }
+    }));
+
+    socket.on("settings:save", safeHandler("settings-save", (patch, ack) => {
+      const next = settings.save(patch || {});
+      // Everyone sees the change, not just the window that made it.
+      broadcastToDJ(io, "settings:update", next);
+      if (typeof ack === "function") ack({ ok: true, settings: next });
     }));
 
     socket.on("disconnect", () => {
@@ -543,7 +564,9 @@ async function commitDownload(io, socket, trackId) {
   });
 
   // Analysis takes a couple of seconds, so never make the download wait on it.
-  queueAnalysis(io, fileName, absPath);
+  if (settings.load().analyseOnDownload !== false) {
+    queueAnalysis(io, fileName, absPath);
+  }
   emitToRequester(socket, trackId, STATUS.READY);
   broadcastToDJ(io, "dj:track-updated", serializeTrack(trackQueue.get(trackId)));
   broadcastToDJ(io, "queue:sync", serializeQueue());
@@ -554,6 +577,13 @@ async function commitDownload(io, socket, trackId) {
 
 function waitForVersionChoice(socket, trackId, hasExtended, extendedTitle) {
   return new Promise((resolve) => {
+    // With the prompt turned off, decide from the stored preference rather
+    // than interrupting every single search.
+    if (settings.load().askExtended === false) {
+      const preferExt = settings.load().preferExtended !== false;
+      return resolve(hasExtended && preferExt ? "extended" : "original");
+    }
+
     const timeout = setTimeout(() => {
       if (pendingChoices.has(trackId)) {
         pendingChoices.delete(trackId);
