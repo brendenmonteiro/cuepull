@@ -50,25 +50,29 @@ const YTDLP = {
   },
 };
 
-// ffmpeg has no official binaries, so these are the long-standing community
-// static builds. gyan.dev for Windows, martin-riedl for macOS because it
-// publishes arm64 as well as x86_64.
+// ffmpeg publishes no official binaries, so these are community static builds.
+//
+// Windows uses the long-standing gyan.dev zip. macOS pulls raw binaries from
+// the ffmpeg-static GitHub release: it carries both arm64 and x86_64, the URLs
+// are version pinned and permanent, and they sit on the same CDN that already
+// serves yt-dlp reliably. The previous macOS host answered its "latest"
+// redirect endpoint with an intermittent 404 and, when it did redirect, sent a
+// relative Location header, which is what produced "Failed: Invalid URL" in CI.
+const FFMPEG_STATIC_TAG = "b6.1.1";
+const ffmpegStatic = (name) =>
+  `https://github.com/eugeneware/ffmpeg-static/releases/download/${FFMPEG_STATIC_TAG}/${name}`;
+
 const FFMPEG = {
   win32: {
     x64: {
+      kind: "zip",
       url: "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
       out: "ffmpeg.exe",
     },
   },
   darwin: {
-    arm64: {
-      url: "https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release/ffmpeg.zip",
-      out: "ffmpeg",
-    },
-    x64: {
-      url: "https://ffmpeg.martin-riedl.de/redirect/latest/macos/amd64/release/ffmpeg.zip",
-      out: "ffmpeg",
-    },
+    arm64: { kind: "raw", url: ffmpegStatic("ffmpeg-darwin-arm64"), out: "ffmpeg" },
+    x64: { kind: "raw", url: ffmpegStatic("ffmpeg-darwin-x64"), out: "ffmpeg" },
   },
 };
 
@@ -79,7 +83,11 @@ function get(url, dest, redirects = 0) {
       .get(url, { headers: { "User-Agent": "cuepull-build" } }, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           res.resume();
-          return resolve(get(res.headers.location, dest, redirects + 1));
+          // Location is allowed to be relative, and passing one straight back
+          // to https.get throws "Invalid URL". Resolve it against the current
+          // url so a relative redirect is followed rather than crashing.
+          const next = new URL(res.headers.location, url).toString();
+          return resolve(get(next, dest, redirects + 1));
         }
         if (res.statusCode !== 200) {
           res.resume();
@@ -107,17 +115,23 @@ function get(url, dest, redirects = 0) {
   });
 }
 
-// Retries a few times. The macOS ffmpeg host answers its redirect endpoint with
-// an intermittent 404, and a transient blip should not fail a whole CI build.
+// Retries a few times, so one network blip does not fail a whole CI build.
+//
+// Downloads land on a temporary path and are renamed into place only once they
+// complete. Without that, an interrupted download leaves a truncated file that
+// the "already present" check on the next run would happily accept and package.
 async function getWithRetry(url, dest, attempts = 3) {
+  const tmp = `${dest}.part`;
   let last;
   for (let i = 1; i <= attempts; i++) {
     try {
-      await get(url, dest);
+      fs.rmSync(tmp, { force: true });
+      await get(url, tmp);
+      fs.renameSync(tmp, dest);
       return;
     } catch (err) {
       last = err;
-      fs.rmSync(dest, { force: true });
+      fs.rmSync(tmp, { force: true });
       if (i < attempts) {
         console.warn(`  attempt ${i} failed (${err.message}), retrying`);
         await new Promise((r) => setTimeout(r, 2000 * i));
@@ -219,6 +233,10 @@ async function fetchArch(arch) {
   const ffPath = path.join(dir, ff.out);
   if (fs.existsSync(ffPath)) {
     console.log(`  ${ff.out} already present, skipping`);
+  } else if (ff.kind === "raw") {
+    console.log("  downloading ffmpeg...");
+    await getWithRetry(ff.url, ffPath);
+    if (PLATFORM !== "win32") fs.chmodSync(ffPath, 0o755);
   } else {
     console.log("  downloading ffmpeg...");
     const zip = path.join(dir, "_ffmpeg.zip");
