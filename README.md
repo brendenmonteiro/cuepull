@@ -9,6 +9,9 @@ that way.
 
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
+![Cuepull main window](docs/images/01-main.png)
+
+
 ## What it does
 
 **Search by name.** Type `Artist - Song` and it searches YouTube and
@@ -101,6 +104,22 @@ Fetched files land in your library folder, sorted into a folder per day like
 Under the queue is a breakdown of everything saved to disk: format split,
 storage, BPM sweet spot, top Camelot keys, genre and where tracks came from.
 
+![Library breakdown](docs/images/02-crate-intel.png)
+
+Reading the panel, left to right and top to bottom:
+
+- **Top genre and headline figures.** Dominant genre, the BPM range most of
+  the library sits in, total hours and how much of it is lossless.
+- **Genre distribution.** Each genre with its average BPM, track count and
+  size on disk.
+- **Most played.** Empty until you either mark tracks played or import a
+  rekordbox collection, because the app never plays audio itself.
+- **Format breakdown.** MP3 against FLAC and WAV, with total storage.
+- **Speed and key profile.** The three Camelot keys the library leans on, plus
+  average track length and how many tracks have been analysed.
+- **Source pipeline.** Where tracks came from: YouTube, Bandcamp, SoundCloud,
+  the Internet Archive and so on.
+
 BPM and key are detected locally with [Essentia](https://essentia.upf.edu/),
 the same analysis library behind the audio features Spotify retired in 2024.
 It runs on your machine, takes two or three seconds per track in the
@@ -127,7 +146,18 @@ works already.
 
 ## Settings
 
-Open the menu (the hamburger, top right) for everything configurable:
+Open the menu (the hamburger, top right) for everything configurable.
+
+![Settings, format preference and library folder](docs/images/03-settings.png)
+
+Format preference is the one worth understanding. The single format options
+do exactly what they say and will fail when no source has that format. The
+fallback options try each in turn, so "best available" always gets you
+something:
+
+![Settings, search behaviour and analysis](docs/images/04-settings-more.png)
+
+Everything in the drawer:
 
 | Setting | What it does |
 |---|---|

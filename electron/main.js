@@ -87,9 +87,13 @@ function startServer() {
         ...process.env,
         ELECTRON_RUN_AS_NODE: "1",
         DJ_DESKTOP: "1",
-        DJ_ENV_PATH: ensureEnvFile(),
+        // CUEPULL_PROFILE_DIR points config and data at another folder. Used
+        // for documentation screenshots so nothing personal is on display.
+        DJ_ENV_PATH: process.env.CUEPULL_PROFILE_DIR
+          ? path.join(process.env.CUEPULL_PROFILE_DIR, ".env")
+          : ensureEnvFile(),
         // Library stats live beside the config so they survive an update.
-        DJ_DATA_DIR: app.getPath("userData"),
+        DJ_DATA_DIR: process.env.CUEPULL_PROFILE_DIR || app.getPath("userData"),
         DJ_CLIENT_DIR: CLIENT_DIR,
         DJ_BIN_DIR: BIN_DIR,
       },
