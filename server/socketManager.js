@@ -1,4 +1,11 @@
 const { v4: uuidv4 } = require("uuid");
+const fs = require("fs");
+const path = require("path");
+const library = require("./library");
+const stats = require("./stats");
+const { analyseFile } = require("./analyser");
+const rekordbox = require("./rekordbox");
+const { DOWNLOADS_DIR } = require("./musicHandler");
 const {
   searchExtendedMix,
   searchOriginal,
@@ -57,6 +64,33 @@ function safeHandler(name, fn) {
   };
 }
 
+// Background BPM and key analysis. Serialised on purpose: each pass spawns
+// ffmpeg and runs a wasm module, and doing several at once would compete with
+// an in-flight download for CPU.
+const analysisQueue = [];
+let analysing = false;
+
+function queueAnalysis(io, fileName, absPath) {
+  analysisQueue.push({ fileName, absPath });
+  drainAnalysis(io);
+}
+
+async function drainAnalysis(io) {
+  if (analysing) return;
+  analysing = true;
+  while (analysisQueue.length) {
+    const { fileName, absPath } = analysisQueue.shift();
+    try {
+      const result = await analyseFile(absPath);
+      library.setAnalysis(fileName, result);
+      broadcastToDJ(io, "stats:update", stats.build());
+    } catch (err) {
+      console.warn(`[analyser] ${fileName}: ${err.message}`);
+    }
+  }
+  analysing = false;
+}
+
 function initSocketManager(io) {
   io.on("connection", (socket) => {
     console.log(`[Socket] Client connected: ${socket.id}`);
@@ -64,6 +98,7 @@ function initSocketManager(io) {
 
     socket.on("dj:join", () => {
       socket.join(DJ_ROOM);
+      socket.emit("stats:update", stats.build());
       console.log(`[Socket] DJ dashboard joined: ${socket.id}`);
       socket.emit("queue:sync", serializeQueue());
     });
@@ -223,6 +258,11 @@ function initSocketManager(io) {
 
     socket.on("dj:mark-played", safeHandler("mark-played", ({ trackId }) => {
       if (!isTrackId(trackId) || !trackQueue.has(trackId)) return;
+      const fn = trackQueue.get(trackId)?.meta?.fileName;
+      if (fn) {
+        library.markPlayed(fn);
+        broadcastToDJ(io, "stats:update", stats.build());
+      }
       updateTrack(trackId, { status: STATUS.PLAYED });
       broadcastToDJ(io, "queue:sync", serializeQueue());
     }));
@@ -236,6 +276,55 @@ function initSocketManager(io) {
       if (!isTrackId(trackId)) return;
       trackQueue.delete(trackId);
       broadcastToDJ(io, "queue:sync", serializeQueue());
+    }));
+
+    // Stats panel can ask for a refresh at any time.
+    socket.on("stats:request", safeHandler("stats", (_p, ack) => {
+      const payload = stats.build();
+      socket.emit("stats:update", payload);
+      if (typeof ack === "function") ack({ ok: true, stats: payload });
+    }));
+
+    // Re-run BPM and key for everything still missing it. Useful after
+    // importing a library that predates analysis.
+    socket.on("stats:analyse-pending", safeHandler("analyse-pending", (_p, ack) => {
+      const pending = library.pendingAnalysis();
+      for (const t of pending) {
+        queueAnalysis(io, t.fileName, path.join(DOWNLOADS_DIR, ...t.fileName.split("/")));
+      }
+      if (typeof ack === "function") ack({ ok: true, queued: pending.length });
+    }));
+
+    // Write a rekordbox collection with BPM and key already filled in, so
+    // tracks import pre-analysed instead of needing a rekordbox pass.
+    socket.on("rekordbox:export", safeHandler("rb-export", ({ outPath }, ack) => {
+      if (typeof ack !== "function") return;
+      if (typeof outPath !== "string" || !outPath.trim()) {
+        return ack({ ok: false, error: "No destination given." });
+      }
+      try {
+        const res = rekordbox.writeCollection(outPath, library.allTracks(), DOWNLOADS_DIR);
+        ack({ ok: true, ...res });
+      } catch (err) {
+        ack({ ok: false, error: err.message });
+      }
+    }));
+
+    // Read a rekordbox export for the things this app cannot know: real play
+    // counts and cue points.
+    socket.on("rekordbox:import", safeHandler("rb-import", ({ xmlPath }, ack) => {
+      if (typeof ack !== "function") return;
+      if (typeof xmlPath !== "string" || !xmlPath.trim()) {
+        return ack({ ok: false, error: "No file given." });
+      }
+      try {
+        const rows = rekordbox.parseCollection(xmlPath);
+        const matched = library.mergeExternalPlays(rows);
+        broadcastToDJ(io, "stats:update", stats.build());
+        ack({ ok: true, parsed: rows.length, matched });
+      } catch (err) {
+        ack({ ok: false, error: err.message });
+      }
     }));
 
     socket.on("disconnect", () => {
@@ -433,6 +522,28 @@ async function commitDownload(io, socket, trackId) {
 
   const updatedMeta = { ...trackQueue.get(trackId).meta, fileName, format };
   updateTrack(trackId, { status: STATUS.READY, progress: 100, meta: updatedMeta });
+
+  // Record it in the persistent library so the stats survive a restart.
+  let bytes = null;
+  const absPath = path.join(DOWNLOADS_DIR, ...fileName.split("/"));
+  try {
+    bytes = fs.statSync(absPath).size;
+  } catch {
+    // File vanished between write and stat; leave size unknown.
+  }
+  library.recordDownload({
+    fileName,
+    title: track.meta?.title,
+    artist: track.meta?.artist,
+    format,
+    source: track.meta?.source || "unknown",
+    durationSec: track.meta?.durationSec ?? null,
+    tags: track.meta?.tags || [],
+    bytes,
+  });
+
+  // Analysis takes a couple of seconds, so never make the download wait on it.
+  queueAnalysis(io, fileName, absPath);
   emitToRequester(socket, trackId, STATUS.READY);
   broadcastToDJ(io, "dj:track-updated", serializeTrack(trackQueue.get(trackId)));
   broadcastToDJ(io, "queue:sync", serializeQueue());

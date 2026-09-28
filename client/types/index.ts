@@ -82,10 +82,40 @@ export interface CuepullBridge {
   chooseFolder(): Promise<{ canceled: boolean; dir?: string }>;
   saveTrackTo(p: { fileName: string; dir: string; suggestedName?: string }): Promise<SaveResult>;
   revealFile(absPath: string): Promise<{ ok: boolean }>;
+  pickRekordboxXml(): Promise<{ canceled: boolean; path?: string }>;
+  pickRekordboxSave(): Promise<{ canceled: boolean; path?: string }>;
 }
 
 declare global {
   interface Window {
     cuepull?: CuepullBridge;
   }
+}
+
+// Library stats. Built server side from tracks actually on disk.
+export interface FormatRow { format: string; tracks: number; bytes: number; share: number; }
+export interface SourceRow { source: string; count: number; share: number; }
+export interface GenreRow { genre: string; tracks: number; bytes: number; share: number; avgBpm: number | null; }
+export interface KeyRow { camelot: string; name: string; count: number; share: number; }
+export interface PlayedRow {
+  title: string; artist: string; plays: number;
+  cuePoints: number | null; bpm: number | null; camelot: string | null;
+  external: boolean;
+}
+
+export interface LibraryStats {
+  totals: {
+    tracks: number; bytes: number; hours: number;
+    avgDurationSec: number | null; losslessShare: number;
+    analysed: number; pendingAnalysis: number;
+  };
+  formats: FormatRow[];
+  sources: SourceRow[];
+  genres: GenreRow[];
+  genreCoverage: { known: number; total: number };
+  bpm: { range: { low: number; high: number } | null; median: number | null; count: number };
+  keys: KeyRow[];
+  keyCoverage: { known: number; total: number };
+  mostPlayed: PlayedRow[];
+  playSource: "rekordbox" | "manual" | null;
 }

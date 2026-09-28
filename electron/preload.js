@@ -18,4 +18,8 @@ contextBridge.exposeInMainWorld("cuepull", {
 
   // Reveal a saved file in Explorer.
   revealFile: (absPath) => ipcRenderer.invoke("cuepull:reveal", absPath),
+
+  // rekordbox collection exchange.
+  pickRekordboxXml: () => ipcRenderer.invoke("cuepull:pick-rb-xml"),
+  pickRekordboxSave: () => ipcRenderer.invoke("cuepull:pick-rb-save"),
 });

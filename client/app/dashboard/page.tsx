@@ -3,8 +3,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { connectSocket } from "@/lib/socket";
-import { Track, TrackMeta } from "@/types";
+import { Track, TrackMeta, LibraryStats } from "@/types";
 import { TrackCard } from "@/app/components/ui/TrackCard";
+import { CrateIntel } from "@/app/components/ui/CrateIntel";
 
 type Filter = "all" | "active" | "staged" | "ready" | "played";
 type Format = "mp3" | "flac" | "wav";
@@ -25,6 +26,7 @@ export default function DashboardPage() {
   const [filter, setFilter] = useState<Filter>("all");
   const [queueId, setQueueId] = useState("----");
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [libStats, setLibStats] = useState<LibraryStats | null>(null);
 
   // Search controls
   const [input, setInput] = useState("");
@@ -62,6 +64,7 @@ export default function DashboardPage() {
     socket.on("connect", () => { setConnected(true); socket.emit("dj:join"); });
     socket.on("disconnect", () => setConnected(false));
     socket.on("queue:sync", (q: Track[]) => setQueue(q));
+    socket.on("stats:update", (payload: LibraryStats) => setLibStats(payload));
     socket.on("dj:track-added", (track: Track) => {
       setQueue((prev) => prev.find((t) => t.trackId === track.trackId) ? prev : [...prev, track]);
     });
@@ -78,7 +81,7 @@ export default function DashboardPage() {
       setChoice({ open: true, trackId, hasExtended, extendedTitle });
     });
     return () => {
-      ["connect","disconnect","queue:sync","dj:track-added","dj:track-updated","dj:progress","request:extended-result"]
+      ["connect","disconnect","queue:sync","dj:track-added","dj:track-updated","dj:progress","request:extended-result","stats:update"]
         .forEach((e) => socket.off(e));
     };
   }, []);
@@ -236,6 +239,37 @@ export default function DashboardPage() {
         : `Saved ${saved} track${saved === 1 ? "" : "s"}${dir ? ` to ${dir}` : ""}`
     );
   }, [queue]);
+
+  // rekordbox exchange. Export writes BPM and key so tracks import already
+  // analysed; import pulls back the play counts and cue points this app has
+  // no way to know.
+  const exportRekordbox = useCallback(async () => {
+    if (!window.cuepull?.isDesktop) return;
+    const pick = await window.cuepull.pickRekordboxSave();
+    if (pick.canceled || !pick.path) return;
+    socketRef.current.emit(
+      "rekordbox:export",
+      { outPath: pick.path },
+      (r: { ok: boolean; count?: number; error?: string }) =>
+        setNotice(r.ok ? `Exported ${r.count} tracks to ${pick.path}` : r.error ?? "Export failed.")
+    );
+  }, []);
+
+  const importRekordbox = useCallback(async () => {
+    if (!window.cuepull?.isDesktop) return;
+    const pick = await window.cuepull.pickRekordboxXml();
+    if (pick.canceled || !pick.path) return;
+    socketRef.current.emit(
+      "rekordbox:import",
+      { xmlPath: pick.path },
+      (r: { ok: boolean; parsed?: number; matched?: number; error?: string }) =>
+        setNotice(
+          r.ok
+            ? `Read ${r.parsed} tracks, matched ${r.matched} in your library.`
+            : r.error ?? "Import failed."
+        )
+    );
+  }, []);
 
   const stats = {
     total: queue.length,
@@ -444,6 +478,28 @@ export default function DashboardPage() {
             </div>
           )}
         </section>
+
+        <CrateIntel stats={libStats} />
+
+        {/* rekordbox exchange */}
+        {libStats && libStats.totals.tracks > 0 && (
+          <div className="mt-stack-md flex flex-wrap justify-end gap-stack-md">
+            <button
+              onClick={importRekordbox}
+              className="font-label-caps text-label-caps text-secondary border border-primary px-4 py-2 hover:bg-primary hover:text-on-primary transition-none"
+              title="Read play counts and cue points from a rekordbox collection"
+            >
+              IMPORT REKORDBOX XML
+            </button>
+            <button
+              onClick={exportRekordbox}
+              className="font-label-caps text-label-caps text-secondary border border-primary px-4 py-2 hover:bg-primary hover:text-on-primary transition-none"
+              title="Write a collection with BPM and key for rekordbox to import"
+            >
+              EXPORT FOR REKORDBOX
+            </button>
+          </div>
+        )}
 
         {/* Stats footer */}
         <section className="mt-stack-lg grid grid-cols-1 md:grid-cols-3 gap-gutter">

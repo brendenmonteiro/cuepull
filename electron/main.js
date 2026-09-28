@@ -88,6 +88,8 @@ function startServer() {
         ELECTRON_RUN_AS_NODE: "1",
         DJ_DESKTOP: "1",
         DJ_ENV_PATH: ensureEnvFile(),
+        // Library stats live beside the config so they survive an update.
+        DJ_DATA_DIR: app.getPath("userData"),
         DJ_CLIENT_DIR: CLIENT_DIR,
         DJ_BIN_DIR: BIN_DIR,
       },
@@ -354,6 +356,28 @@ function registerSaveHandlers() {
     } catch (err) {
       return { saved: false, error: err.message };
     }
+  });
+
+  // Choose a rekordbox export to read play counts and cue points from.
+  ipcMain.handle("cuepull:pick-rb-xml", async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+      title: "Choose a rekordbox collection XML",
+      filters: [{ name: "rekordbox XML", extensions: ["xml"] }],
+      properties: ["openFile"],
+    });
+    if (canceled || !filePaths?.length) return { canceled: true };
+    return { canceled: false, path: filePaths[0] };
+  });
+
+  // Choose where to write a collection for rekordbox to import.
+  ipcMain.handle("cuepull:pick-rb-save", async () => {
+    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+      title: "Export collection for rekordbox",
+      defaultPath: path.join(app.getPath("documents"), "cuepull-collection.xml"),
+      filters: [{ name: "rekordbox XML", extensions: ["xml"] }],
+    });
+    if (canceled || !filePath) return { canceled: true };
+    return { canceled: false, path: filePath };
   });
 
   ipcMain.handle("cuepull:reveal", async (_e, absPath) => {

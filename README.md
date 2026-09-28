@@ -96,6 +96,35 @@ Download All to pick one folder and save everything at once.
 Fetched files land in your library folder, sorted into a folder per day like
 `27-09-2026`. Change where that is under File, Edit Configuration.
 
+## Crate intel
+
+Under the queue is a breakdown of everything saved to disk: format split,
+storage, BPM sweet spot, top Camelot keys, genre and where tracks came from.
+
+BPM and key are detected locally with [Essentia](https://essentia.upf.edu/),
+the same analysis library behind the audio features Spotify retired in 2024.
+It runs on your machine, takes two or three seconds per track in the
+background after a download, and nothing is uploaded. Key detection lands
+right most of the time but not always, so treat a single reading as a strong
+hint rather than gospel.
+
+Genre is inferred from the tags the source supplied. YouTube has no genre
+field, so this is a best guess and tracks without usable tags show nothing
+rather than a made up label.
+
+Cuepull never plays audio, so it cannot count plays by itself. Two buttons
+bridge that:
+
+- **Export for rekordbox** writes a collection XML with BPM and key already
+  filled in, so tracks import pre analysed instead of needing a rekordbox
+  analysis pass.
+- **Import rekordbox XML** reads a collection you exported from rekordbox
+  (File, Export Collection in xml format) and pulls back real play counts and
+  cue points.
+
+Ableton needs nothing: it watches folders, so pointing it at your library
+works already.
+
 ## Settings
 
 File, Edit Configuration opens a plain text config at:

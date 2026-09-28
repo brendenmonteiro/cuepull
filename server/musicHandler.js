@@ -22,6 +22,18 @@ function todayFolder() {
   return `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()}`;
 }
 
+// yt-dlp prints tags as a python style list, e.g. ['techno', 'house'].
+// Only used to infer a genre label, so a loose parse is fine.
+function parseTagList(raw) {
+  if (!raw || raw === "NA") return [];
+  return raw
+    .replace(/^\[|\]$/g, "")
+    .split(",")
+    .map((t) => t.trim().replace(/^['\"]|['\"]$/g, ""))
+    .filter(Boolean)
+    .slice(0, 40);
+}
+
 function isSpotifyUrl(input) {
   return (
     typeof input === "string" &&
@@ -144,13 +156,15 @@ async function searchMusicApi(query, requireExtended = true) {
       : `ytsearch1:${query}`;
     execFile(
       ytDlpPath(),
-      ["--no-download", "--print", "%(id)s\t%(title)s\t%(uploader)s\t%(duration_string)s", searchQuery],
+      ["--no-download", "--print",
+       "%(id)s\t%(title)s\t%(uploader)s\t%(duration_string)s\t%(duration)s\t%(tags)s",
+       searchQuery],
       { timeout: 30000 },
       (err, stdout) => {
         if (err) return reject(new Error(`yt-dlp search failed: ${err.message}`));
         const line = stdout.trim();
         if (!line) return reject(new Error(`No results found for "${query}"`));
-        const [id, title, uploader, duration] = line.split("\t");
+        const [id, title, uploader, duration, durationSec, tagsRaw] = line.split("\t");
         if (requireExtended && !/extended\s+mix/i.test(title)) {
           return reject(new Error(`No Extended Mix found for "${query}", top result was "${title}"`));
         }
@@ -159,6 +173,10 @@ async function searchMusicApi(query, requireExtended = true) {
           artist: uploader || "Unknown Artist",
           url: `https://www.youtube.com/watch?v=${id}`,
           duration: duration || "",
+          durationSec: Number(durationSec) || null,
+          // yt-dlp prints a python style list; only used to infer genre.
+          tags: parseTagList(tagsRaw),
+          source: "youtube",
           bpm: null,
           key: null,
         });
