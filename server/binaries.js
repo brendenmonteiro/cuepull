@@ -18,8 +18,15 @@ const exe = (name) => (isWindows ? `${name}.exe` : name);
 
 // Bundled copies shipped with the packaged app (electron-builder extraResources
 // puts them in resources/bin). DJ_BIN_DIR is set by the Electron main process.
-function bundledDir() {
-  return process.env.DJ_BIN_DIR || path.join(__dirname, "..", "resources", "bin");
+//
+// Unpackaged, the fetch script writes into a per-architecture subdirectory,
+// because a macOS build has to carry both an arm64 and an x64 ffmpeg. The
+// packaged app only ever receives the one directory that matches it, so the
+// flat path is checked too.
+function bundledDirs() {
+  if (process.env.DJ_BIN_DIR) return [process.env.DJ_BIN_DIR];
+  const root = path.join(__dirname, "..", "resources", "bin");
+  return [path.join(root, `${process.platform}-${process.arch}`), root];
 }
 
 // WinGet installs yt-dlp and ffmpeg into stable package directories. The ffmpeg
@@ -80,7 +87,7 @@ function resolve(name, overrideEnv) {
   const candidates = [
     process.env[overrideEnv],
     ...wingetCandidates(name),
-    path.join(bundledDir(), exe(name)),
+    ...bundledDirs().map((d) => path.join(d, exe(name))),
   ].filter(Boolean);
 
   for (const c of candidates) {

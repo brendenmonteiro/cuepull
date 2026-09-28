@@ -50,7 +50,7 @@
     ],
     "extraResources": [
       {
-        "from": "resources/bin",
+        "from": "resources/bin/${platform}-${arch}",
         "to": "bin",
         "filter": [
           "**/*"

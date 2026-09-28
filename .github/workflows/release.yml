@@ -42,16 +42,28 @@ jobs:
           npm ci --prefix client
           npm ci --prefix server
 
-      # Fetches yt-dlp and ffmpeg for the host platform, verifying yt-dlp
-      # against its published checksum.
+      # Fetches yt-dlp and ffmpeg for every architecture the host platform
+      # targets, verifying yt-dlp against its published checksum. macOS builds
+      # two dmgs, so it needs both an arm64 and an x64 ffmpeg.
       - name: Fetch bundled binaries
         run: npm run fetch:bin
+
+      # A missing or misplaced binary shows up here rather than as an opaque
+      # packaging failure later.
+      - name: Show binary layout
+        shell: bash
+        run: ls -lR resources/bin
 
       - name: Build the UI
         run: npm run build:ui
 
       - name: Package
         run: npx electron-builder --publish never
+        env:
+          # Without a signing identity, skip signing rather than failing. The
+          # release is unsigned on both platforms and the checksums cover it.
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+          DEBUG: electron-builder
 
       - name: Checksums
         run: npm run checksums
