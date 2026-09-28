@@ -4,8 +4,10 @@ A desktop app for building a DJ library. Type a track name or paste a link,
 pick a format, and it finds a source and pulls down the audio. Nothing is
 written to disk until you press download.
 
-Windows desktop app. There is also a browser version if you prefer running it
-that way.
+Windows desktop app. A macOS build exists but has not been tested on real
+hardware yet, so it is not in the releases: see [Trying it on
+macOS](#trying-it-on-macos) if you have a Mac and are willing to help. There is
+also a browser version if you prefer running it that way.
 
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
@@ -34,9 +36,13 @@ that row, or Download All. Then you choose where the file goes.
 
 ## Install
 
-Download `Cuepull Setup <version>.exe` from [Releases](../../releases) and run
-it. It installs for your user only, so there is no admin prompt, and it ships
-its own copies of yt-dlp and ffmpeg. Nothing else to install.
+**Windows.** Download `Cuepull Setup <version>.exe` from
+[Releases](../../releases) and run it. It installs for your user only, so there
+is no admin prompt, and it ships its own copies of yt-dlp and ffmpeg. Nothing
+else to install.
+
+**macOS.** Not released yet, because it has never been run on a Mac. See
+[Trying it on macOS](#trying-it-on-macos).
 
 ### About the SmartScreen warning
 
@@ -60,6 +66,106 @@ download again.
 
 You can also build the installer yourself with the steps below, which avoids
 the warning question entirely.
+
+## Trying it on macOS
+
+The macOS build is not in the releases yet. It compiles on CI, both an Apple
+Silicon and an Intel `.dmg`, but nobody has launched it on a real Mac. I build
+on Windows and do not own one. So everything below is untested, and the point
+of it is to find out what breaks.
+
+If you try it, what I need to know is in [What to check](#what-to-check) at the
+end of this section.
+
+### Getting a build
+
+Two options.
+
+**Download one from CI.** Open the
+[Actions tab](../../actions/workflows/release.yml), click the newest run with a
+green tick, scroll to **Artifacts** at the bottom, and download
+`cuepull-macos`. It is a zip holding both dmgs. Artifacts expire 90 days after
+the run, and GitHub requires you to be signed in to download them.
+
+Pick the dmg that matches your Mac. Apple menu, About This Mac: an **Apple M1,
+M2, M3** or later chip needs `arm64`, an **Intel** processor needs `x64`. The
+wrong one will not run.
+
+**Or build it yourself.** Needs Node 22 or newer:
+
+```bash
+git clone https://github.com/brendenmonteiro/cuepull.git
+cd cuepull
+npm install
+npm run dist
+```
+
+The dmg lands in `dist/`. The first run also downloads yt-dlp and ffmpeg into
+`resources/bin/`, around 120 MB.
+
+### Opening it past Gatekeeper
+
+The app is not code signed or notarized, so macOS will refuse it on the first
+try. On recent versions the message is **"Cuepull is damaged and can't be
+opened. You should move it to the Bin."**
+
+Nothing is damaged. That is what Gatekeeper says about any app it cannot
+verify, and the wording is worse than the Windows equivalent. It is also the
+main reason I have not published this build: the message reads like a corrupt
+download, and most people would delete it rather than work around it.
+
+Open the dmg and drag Cuepull to Applications, then:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Cuepull.app
+```
+
+That removes the quarantine flag macOS puts on anything downloaded from the
+internet. Then open the app normally.
+
+Right-click, Open sometimes works instead and avoids the terminal, but on
+current macOS the "damaged" case usually needs the `xattr` command.
+
+Only run that on software you actually mean to trust. If you would rather
+check the download first, the CI artifact includes `SHA256SUMS.txt`:
+
+```bash
+shasum -a 256 Cuepull-1.1.0-arm64.dmg
+```
+
+Compare it to the matching line in that file. Building it yourself sidesteps
+the question.
+
+### What to check
+
+Rough order of how likely each is to break:
+
+1. **It opens at all.** A window, not a crash, not a blank grey rectangle.
+2. **Search works.** Type `Scott Joplin - Maple Leaf Rag` and press enter. It
+   should reach `READY TO GET`. This is the one that proves the bundled yt-dlp
+   and ffmpeg survived packaging and can execute, which is the part I most
+   expect to fail.
+3. **A download completes.** Press the download button on that row. It should
+   save an mp3 and the track should turn `READY`.
+4. **The file is real.** Somewhere under `~/Music`, in a folder named for
+   today's date, and it should play.
+5. **Quitting leaves nothing behind.** Quit, then run
+   `pgrep -l "yt-dlp|ffmpeg|Cuepull"`. It should print nothing. Windows needed
+   explicit cleanup for this and the macOS path has never been exercised.
+6. **Settings open.** The hamburger menu, top right. Changing the library
+   folder should stick after a restart.
+
+[Open an issue](../../issues) with what happened, your macOS version, and
+whether you are on Apple Silicon or Intel. A report that it worked is as useful
+as one that it did not, since right now I know neither.
+
+If the app will not start, this gives me something to work with:
+
+```bash
+/Applications/Cuepull.app/Contents/MacOS/Cuepull
+```
+
+That runs it from a terminal so errors print instead of disappearing.
 
 ## Build it yourself
 
@@ -178,12 +284,13 @@ updates. The old `.env` still works and seeds the defaults on first run.
 File, Edit Configuration opens a plain text config at:
 
 ```
-%APPDATA%\Cuepull\.env
+%APPDATA%\Cuepull\.env                              Windows
+~/Library/Application Support/Cuepull/.env          macOS
 ```
 
 | Setting | What it does |
 |---|---|
-| `DOWNLOADS_DIR` | Where fetched tracks go. Defaults to `Music\Cuepull`. |
+| `DOWNLOADS_DIR` | Where fetched tracks go. Defaults to `Music\Cuepull` on Windows, `~/Music/Cuepull` on macOS. |
 | `SPOTIFY_CLIENT_ID` | Needed for Spotify playlist links. |
 | `SPOTIFY_CLIENT_SECRET` | Same. |
 | `YTDLP_PATH` | Use a specific yt-dlp instead of the bundled one. |
@@ -301,8 +408,8 @@ connections while idle.
 Spotify and SoundCloud endpoints when you use those features. No analytics, no
 telemetry, no crash reporting, no account.
 
-**Bundled binaries are checked.** `scripts/fetch-binaries.js` verifies
-`yt-dlp.exe` against the SHA-256 checksum yt-dlp publishes with each release,
+**Bundled binaries are checked.** `scripts/fetch-binaries.js` verifies yt-dlp
+against the SHA-256 checksum yt-dlp publishes with each release,
 so a tampered download fails the build instead of being packaged.
 
 **The window is locked down.** Node integration off, context isolation on, OS
@@ -340,18 +447,19 @@ installer, and the build verifies yt-dlp against its published hash before
 packaging.
 
 Files land where you tell them. Nothing is written until you press download,
-and the save dialog is a normal Windows one.
+and the save dialog is the normal one for your system.
 
 ## Third party tools
 
-This app drives two external programs and bundles them in the Windows
-installer without modification:
+This app drives two external programs and bundles them in the installer
+without modification:
 
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp), Unlicense. Does the searching and
   downloading.
-- [ffmpeg](https://ffmpeg.org/), specifically the
-  [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) essentials build, which is
-  GPL licensed. Converts audio.
+- [ffmpeg](https://ffmpeg.org/), GPL licensed. Converts audio. Windows uses the
+  [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) essentials build; macOS uses
+  the [ffmpeg-static](https://github.com/eugeneware/ffmpeg-static) release,
+  which publishes both Apple Silicon and Intel binaries.
 
 If you redistribute a build of this app you are redistributing those binaries
 too, so check you are happy with their licenses, particularly the GPL terms on
