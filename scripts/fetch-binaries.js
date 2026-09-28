@@ -1,8 +1,10 @@
-// Downloads the yt-dlp and ffmpeg binaries that get bundled into the installer.
-// They are NOT committed to the repo (≈117 MB, and they have their own
-// licences), so `npm run dist` calls this first on a fresh clone.
+// Downloads the yt-dlp and ffmpeg binaries bundled into the installer.
 //
-// Windows x64 only for now, that is what the installer targets.
+// They are not committed to the repo: they are large, and they carry their own
+// licences. `npm run dist` fetches them first, so a fresh clone can build.
+//
+// Windows and macOS are supported. On Linux the app finds yt-dlp and ffmpeg on
+// PATH instead, so nothing is bundled there.
 
 const fs = require("fs");
 const path = require("path");
@@ -12,11 +14,41 @@ const crypto = require("crypto");
 
 const BIN_DIR = path.join(__dirname, "..", "resources", "bin");
 
-const YTDLP_URL =
-  "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
-// Gyan's "essentials" build: a static ffmpeg.exe with no extra DLLs.
-const FFMPEG_ZIP =
-  "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip";
+const PLATFORM = process.platform;
+// electron-builder sets this when cross-building; otherwise use the host.
+const ARCH = process.env.BUILD_ARCH || process.arch;
+
+// yt-dlp publishes a per-platform binary with every release. The macOS build
+// is universal, so one file covers Apple Silicon and Intel.
+const YTDLP = {
+  win32: {
+    url: "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe",
+    out: "yt-dlp.exe",
+  },
+  darwin: {
+    url: "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos",
+    out: "yt-dlp",
+  },
+};
+
+// ffmpeg has no official binaries, so these are the long-standing community
+// static builds. gyan.dev for Windows, martin-riedl for macOS because it
+// publishes arm64 as well as x86_64.
+const FFMPEG = {
+  win32: {
+    kind: "zip",
+    url: "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
+    out: "ffmpeg.exe",
+  },
+  darwin: {
+    kind: "zip",
+    url: (arch) =>
+      `https://ffmpeg.martin-riedl.de/redirect/latest/macos/${
+        arch === "arm64" ? "arm64" : "amd64"
+      }/release/ffmpeg.zip`,
+    out: "ffmpeg",
+  },
+};
 
 function get(url, dest, redirects = 0) {
   return new Promise((resolve, reject) => {
@@ -39,7 +71,7 @@ function get(url, dest, redirects = 0) {
           seen += c.length;
           if (total) {
             const pct = Math.floor((seen / total) * 100);
-            if (pct >= lastPct + 10) {
+            if (pct >= lastPct + 20) {
               lastPct = pct;
               process.stdout.write(`  ${pct}%\r`);
             }
@@ -53,11 +85,10 @@ function get(url, dest, redirects = 0) {
   });
 }
 
-
 // yt-dlp publishes SHA2-256SUMS with every release. Checking it means a
-// tampered or truncated download fails the build instead of being packaged
+// tampered or truncated download fails the build rather than being packaged
 // into an installer other people run.
-async function verifyYtDlp(file) {
+async function verifyYtDlp(file, assetName) {
   const sumsUrl =
     "https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS";
   const tmp = file + ".sums";
@@ -66,10 +97,10 @@ async function verifyYtDlp(file) {
     const line = fs
       .readFileSync(tmp, "utf8")
       .split(/\r?\n/)
-      .find((l) => l.trim().endsWith("yt-dlp.exe"));
+      .find((l) => l.trim().endsWith(assetName));
     fs.rmSync(tmp, { force: true });
     if (!line) {
-      console.warn("  could not find a published checksum, skipping verify");
+      console.warn("  no published checksum for this asset, skipping verify");
       return;
     }
     const expected = line.trim().split(/\s+/)[0].toLowerCase();
@@ -80,9 +111,7 @@ async function verifyYtDlp(file) {
     if (actual !== expected) {
       fs.rmSync(file, { force: true });
       throw new Error(
-        `yt-dlp checksum mismatch.
-  expected ${expected}
-  got      ${actual}`
+        `yt-dlp checksum mismatch.\n  expected ${expected}\n  got      ${actual}`
       );
     }
     console.log("  checksum verified");
@@ -93,62 +122,85 @@ async function verifyYtDlp(file) {
   }
 }
 
+function unzip(zipPath, destDir) {
+  fs.rmSync(destDir, { recursive: true, force: true });
+  fs.mkdirSync(destDir, { recursive: true });
+  if (PLATFORM === "win32") {
+    // Expand-Archive ships with Windows, so no unzip dependency is needed.
+    execFileSync(
+      "powershell",
+      ["-NoProfile", "-Command",
+       `Expand-Archive -Path "${zipPath}" -DestinationPath "${destDir}" -Force`],
+      { stdio: "inherit" }
+    );
+  } else {
+    execFileSync("unzip", ["-o", "-q", zipPath, "-d", destDir], { stdio: "inherit" });
+  }
+}
+
+function findFile(dir, name) {
+  const found = [];
+  (function walk(d) {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (e.name === name || e.name === `${name}.exe`) found.push(p);
+    }
+  })(dir);
+  return found[0] || null;
+}
+
 async function main() {
-  if (process.platform !== "win32") {
-    console.error("This script currently fetches Windows x64 binaries only.");
-    console.error("On macOS/Linux install yt-dlp and ffmpeg with your package");
-    console.error("manager, the app finds them on PATH.");
-    process.exit(1);
+  if (PLATFORM !== "win32" && PLATFORM !== "darwin") {
+    console.log(
+      `No binaries bundled on ${PLATFORM}. Install yt-dlp and ffmpeg with your\n` +
+      `package manager; the app finds them on PATH.`
+    );
+    return;
   }
 
   fs.mkdirSync(BIN_DIR, { recursive: true });
 
-  const ytDlp = path.join(BIN_DIR, "yt-dlp.exe");
-  if (fs.existsSync(ytDlp)) {
-    console.log("yt-dlp.exe already present, skipping");
+  // yt-dlp
+  const yt = YTDLP[PLATFORM];
+  const ytPath = path.join(BIN_DIR, yt.out);
+  if (fs.existsSync(ytPath)) {
+    console.log(`${yt.out} already present, skipping`);
   } else {
     console.log("Downloading yt-dlp...");
-    await get(YTDLP_URL, ytDlp);
-    await verifyYtDlp(ytDlp);
+    await get(yt.url, ytPath);
+    await verifyYtDlp(ytPath, path.basename(yt.url));
+    if (PLATFORM !== "win32") fs.chmodSync(ytPath, 0o755);
     console.log("  done");
   }
 
-  const ffmpeg = path.join(BIN_DIR, "ffmpeg.exe");
-  if (fs.existsSync(ffmpeg)) {
-    console.log("ffmpeg.exe already present, skipping");
+  // ffmpeg
+  const ff = FFMPEG[PLATFORM];
+  const ffPath = path.join(BIN_DIR, ff.out);
+  if (fs.existsSync(ffPath)) {
+    console.log(`${ff.out} already present, skipping`);
   } else {
-    console.log("Downloading ffmpeg (~115 MB)...");
+    const url = typeof ff.url === "function" ? ff.url(ARCH) : ff.url;
+    console.log(`Downloading ffmpeg (${PLATFORM}/${ARCH})...`);
     const zip = path.join(BIN_DIR, "_ffmpeg.zip");
-    await get(FFMPEG_ZIP, zip);
+    await get(url, zip);
     console.log("  extracting...");
     const tmp = path.join(BIN_DIR, "_ffmpeg");
-    fs.rmSync(tmp, { recursive: true, force: true });
-    // Expand-Archive ships with Windows; avoids adding an unzip dependency.
-    execFileSync(
-      "powershell",
-      ["-NoProfile", "-Command", `Expand-Archive -Path "${zip}" -DestinationPath "${tmp}" -Force`],
-      { stdio: "inherit" }
-    );
-    // The zip nests everything under ffmpeg-<version>-essentials_build/bin.
-    const found = [];
-    (function walk(dir) {
-      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-        const p = path.join(dir, e.name);
-        if (e.isDirectory()) walk(p);
-        else if (e.name.toLowerCase() === "ffmpeg.exe") found.push(p);
-      }
-    })(tmp);
-    if (!found.length) throw new Error("ffmpeg.exe not found in archive");
-    fs.copyFileSync(found[0], ffmpeg);
+    unzip(zip, tmp);
+    const src = findFile(tmp, ff.out.replace(/\.exe$/, ""));
+    if (!src) throw new Error("ffmpeg not found in archive");
+    fs.copyFileSync(src, ffPath);
+    if (PLATFORM !== "win32") fs.chmodSync(ffPath, 0o755);
     fs.rmSync(tmp, { recursive: true, force: true });
     fs.rmSync(zip, { force: true });
     console.log("  done");
   }
 
-  for (const f of ["yt-dlp.exe", "ffmpeg.exe"]) {
+  for (const f of [yt.out, ff.out]) {
     const p = path.join(BIN_DIR, f);
-    const mb = (fs.statSync(p).size / 1048576).toFixed(1);
-    console.log(`  ${f}  ${mb} MB`);
+    if (fs.existsSync(p)) {
+      console.log(`  ${f}  ${(fs.statSync(p).size / 1048576).toFixed(1)} MB`);
+    }
   }
 }
 

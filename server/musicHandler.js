@@ -3,6 +3,7 @@ const https = require("https");
 const fs = require("fs");
 const path = require("path");
 const { ytDlpPath, ffmpegArgs } = require("./binaries");
+const extraSources = require("./losslessSources");
 
 // Base library folder. Override with DOWNLOADS_DIR in server/.env to point at
 // your real music library; defaults to ./downloads so a fresh clone still works.
@@ -352,33 +353,55 @@ function searchFMA(query) {
 // - For the playlist auto-priority path → allowYouTubeFallback = true, because
 //   there YouTube MP3 is the intended bottom tier anyway.
 async function searchLossless(query, allowYouTubeFallback = false) {
-  // 1) Internet Archive, genuine lossless (FLAC/WAV/AIFF). Strict title match.
-  try {
-    const ia = await searchInternetArchiveSingleTrack(query);
-    if (ia?.url) return { ...ia, source: "Internet Archive" };
-  } catch {}
+  // Every source here is public domain, Creative Commons, or sold directly by
+  // the artist. Each is tried in turn and the first real match wins. What was
+  // tried is reported back so a failure can say something useful.
+  const tried = [];
 
-  // 2) Free Music Archive, genuine lossless / high-quality originals.
-  try {
-    const fma = await searchFMA(query);
-    if (fma?.url) return { ...fma, source: "Free Music Archive" };
-  } catch {}
+  const attempts = [
+    ["Internet Archive", () => searchInternetArchiveSingleTrack(query)],
+    ["Free Music Archive", () => extraSources.searchFMA(query)],
+    ["ccMixter", () => extraSources.searchCCMixter(query)],
+  ];
 
-  // 3) YouTube, ONLY if explicitly allowed (lossy source; container-lossless).
+  for (const [name, fn] of attempts) {
+    try {
+      const hit = await fn();
+      if (hit?.url) {
+        return { ...hit, source: hit.source || name };
+      }
+      tried.push(`${name}: no match`);
+    } catch (err) {
+      tried.push(`${name}: ${err.message}`);
+    }
+  }
+
+  // Lossy, so only when the caller explicitly permits it.
   if (allowYouTubeFallback) {
     try {
       const yt = await searchMusicApi(query, false);
       if (yt?.url) return { ...yt, source: "YouTube" };
-    } catch {}
+    } catch (err) {
+      tried.push(`YouTube: ${err.message}`);
+    }
   }
 
-  throw new Error(
+  const detail = tried.length ? ` Tried ${tried.join("; ")}.` : "";
+  const err = new Error(
     allowYouTubeFallback
-      ? `No source found for "${query}".`
-      : `No genuine lossless source (Internet Archive / Free Music Archive / Bandcamp) found for "${query}". ` +
-        `Try MP3, or paste a Bandcamp URL for studio-master lossless.`
+      ? `No source found for "${query}".${detail}`
+      : `No lossless source found for "${query}". Lossless comes from the ` +
+        `Internet Archive, Free Music Archive and ccMixter, which carry ` +
+        `public domain and Creative Commons music, so most commercial ` +
+        `releases are not there. Switch this track to MP3, or paste a ` +
+        `Bandcamp link for a lossless copy from the artist.${detail}`
   );
+  // Lets the UI offer MP3 instead of just showing a dead end.
+  err.code = "NO_LOSSLESS_SOURCE";
+  err.triedSources = tried;
+  throw err;
 }
+
 
 // Resolve an Internet Archive item that genuinely matches the query AND actually
 // carries a lossless file. We require nearly all query words to appear in the

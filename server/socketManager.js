@@ -11,6 +11,7 @@ const {
   searchExtendedMix,
   searchOriginal,
   searchLossless,
+  searchMusicApi,
   isBandcampUrl,
   downloadTrack,
   isSpotifyUrl,
@@ -489,8 +490,33 @@ async function processLosslessPipeline(io, socket, trackId, songName, isBulk, fo
     if (!isBulk) emitToRequester(socket, trackId, STATUS.SEARCHING);
     broadcastToDJ(io, "dj:track-updated", serializeTrack(trackQueue.get(trackId)));
 
-    const searchResult = await searchLossless(songName);
-    await finishDownloadPipeline(io, socket, trackId, searchResult, isBulk, format);
+    let searchResult;
+    let actualFormat = format;
+
+    try {
+      searchResult = await searchLossless(songName);
+    } catch (err) {
+      // Most commercial music has no lossless source, so failing outright is
+      // a dead end. If the user's format preference allows a lossy fallback,
+      // take it and say so rather than making them search again by hand.
+      const chain = settings.formatChain();
+      const fallback = chain.find((f) => f !== format && f === "mp3");
+      if (err.code !== "NO_LOSSLESS_SOURCE" || !fallback) throw err;
+
+      searchResult = await searchMusicApi(songName, false);
+      actualFormat = fallback;
+      // Tell the requester why they got MP3 when they asked for lossless.
+      if (!isBulk) {
+        socket.emit("request:notice", {
+          trackId,
+          message:
+            `No lossless source for "${songName}", so this one is MP3. ` +
+            `Paste a Bandcamp link if the artist sells a lossless copy.`,
+        });
+      }
+    }
+
+    await finishDownloadPipeline(io, socket, trackId, searchResult, isBulk, actualFormat);
   } catch (err) {
     pipelineError(io, socket, trackId, err.message);
     if (!isBulk) socket.emit("request:error", { trackId, message: err.message });
