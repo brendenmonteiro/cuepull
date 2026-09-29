@@ -274,6 +274,7 @@ export default function DashboardPage() {
           (r: {
             ok: boolean;
             durationSec?: number;
+            grid?: { bpm: number; beatSec: number; offsetSec: number } | null;
             overview?: { buckets: number; peaks: ArrayBuffer | Uint8Array };
             detail?: { buckets: number; peaks: ArrayBuffer | Uint8Array };
           }) => {
@@ -286,6 +287,7 @@ export default function DashboardPage() {
                 : new Int8Array(p);
             resolve({
               durationSec: r.durationSec,
+              grid: r.grid ?? null,
               overview: { buckets: r.overview.buckets, peaks: toI8(r.overview.peaks) },
               detail: { buckets: r.detail.buckets, peaks: toI8(r.detail.peaks) },
             });

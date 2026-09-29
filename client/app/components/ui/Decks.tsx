@@ -68,11 +68,17 @@ function DeckPanel({
   side,
   eq,
   onEq,
+  zoomSec,
+  onZoom,
+  keyHint,
 }: {
   deck: Deck;
   side: "A" | "B";
   eq: Record<EqBand, number>;
   onEq: (band: EqBand, db: number) => void;
+  zoomSec: number;
+  onZoom: (v: number) => void;
+  keyHint: { play: string; cue: string };
 }) {
   const { track, waveform, playing, loading, error, duration, position, pitch } = deck;
 
@@ -81,6 +87,14 @@ function DeckPanel({
       <div className="flex items-baseline justify-between px-3 py-2 border-b border-primary">
         <span className="font-label-caps text-label-caps uppercase">Deck {side}</span>
         <div className="flex items-center gap-stack-md font-label-mono text-label-mono">
+          {waveform?.grid && (
+            <span
+              className="text-secondary"
+              title="Beat grid derived from the analysed tempo, not a full beat detection pass"
+            >
+              grid
+            </span>
+          )}
           {track?.camelot && <span>{track.camelot}</span>}
           {deck.playingBpm != null && (
             <span className={pitch !== 0 ? "text-primary" : "text-secondary"}>
@@ -120,9 +134,10 @@ function DeckPanel({
         buckets={waveform?.detail.buckets ?? 0}
         durationSec={duration}
         position={position}
+        grid={waveform?.grid ?? null}
         mode="detail"
-        windowSec={8}
-        height={72}
+        windowSec={zoomSec}
+        height={96}
         onSeek={deck.seek}
       />
       <div className="border-t border-outline-variant">
@@ -140,15 +155,39 @@ function DeckPanel({
 
       <div className="flex items-center justify-between px-3 py-2 font-label-mono text-label-mono border-b border-outline-variant">
         <span>{fmt(position)}</span>
+        <div className="flex items-center gap-stack-sm text-secondary">
+          <span>zoom</span>
+          <input
+            type="range"
+            min={4}
+            max={40}
+            step={1}
+            value={zoomSec}
+            onChange={(e) => onZoom(Number(e.target.value))}
+            onDoubleClick={() => onZoom(16)}
+            className="w-20 accent-primary"
+            aria-label={`Deck ${side} waveform zoom, seconds visible`}
+            title="Seconds of track shown. Wider is slower moving."
+          />
+          <span className="w-8 text-right">{zoomSec}s</span>
+        </div>
         <span className="text-secondary">-{fmt(Math.max(0, duration - position))}</span>
       </div>
 
       <div className="flex items-stretch gap-1 p-3 border-b border-outline-variant">
         <button
+          onClick={deck.setCueHere}
+          disabled={!track}
+          className="flex-1 font-label-caps text-label-caps border border-primary py-2 hover:bg-primary hover:text-on-primary transition-none disabled:opacity-30"
+          title="Drop a cue point at the playhead"
+        >
+          SET
+        </button>
+        <button
           onClick={deck.cue}
           disabled={!track}
           className="flex-1 font-label-caps text-label-caps border border-primary py-2 hover:bg-primary hover:text-on-primary transition-none disabled:opacity-30"
-          title="Set the cue point when stopped, jump back to it when playing"
+          title={`Return to the cue point, or stop back at it while playing  [${keyHint.cue}]`}
         >
           CUE
         </button>
@@ -158,6 +197,7 @@ function DeckPanel({
           className={`flex-[2] font-label-caps text-label-caps border border-primary py-2 transition-none disabled:opacity-30 ${
             playing ? "bg-primary text-on-primary" : "hover:bg-primary hover:text-on-primary"
           }`}
+          title={`Play or pause  [${keyHint.play}]`}
         >
           {playing ? "PAUSE" : "PLAY"}
         </button>
@@ -213,6 +253,10 @@ export function Decks({
   const [crossfade, setCrossfade] = useState(0.5);
   const [eqA, setEqA] = useState<Record<EqBand, number>>({ low: 0, mid: 0, high: 0 });
   const [eqB, setEqB] = useState<Record<EqBand, number>>({ low: 0, mid: 0, high: 0 });
+  // Seconds of track visible in the detail view. Wider means the waveform
+  // crawls rather than races, which makes it far easier to hit a beat.
+  const [zoomA, setZoomA] = useState(16);
+  const [zoomB, setZoomB] = useState(16);
   // Which deck the next load goes to. Alternates so two presses fill both.
   const nextDeck = useRef<"A" | "B">("A");
 
@@ -277,16 +321,88 @@ export function Decks({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadRequest?.nonce]);
 
-  // Space toggles the deck that has a track, or deck A when both do.
+  // Keyboard mapping, laid out like a controller: deck A on the left of the
+  // keyboard, deck B on the right, so muscle memory matches the screen.
+  //
+  //   Q / P        play or pause that deck
+  //   W / O        cue play: jump to the cue point and run from it
+  //   S / L        drop a cue point at the playhead
+  //   1..4 / 7..0  nudge that deck's pitch
+  //   Z / X        crossfader hard left / hard right
+  //   C            crossfader centre
+  //   space        play or pause whichever deck is focused last, or A
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
+      // Never steal a key from a text field or a slider being nudged.
       if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
-      if (e.code !== "Space") return;
-      e.preventDefault();
-      if (deckA.track) deckA.toggle();
-      else if (deckB.track) deckB.toggle();
+      if (el && el.isContentEditable) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      const A = deckA;
+      const B = deckB;
+      const handled = () => {
+        e.preventDefault();
+        e.stopPropagation();
+      };
+
+      switch (e.code) {
+        case "KeyQ":
+          if (A.track) { handled(); A.toggle(); }
+          return;
+        case "KeyP":
+          if (B.track) { handled(); B.toggle(); }
+          return;
+        case "KeyW":
+          if (A.track) { handled(); void A.cuePlay(); }
+          return;
+        case "KeyO":
+          if (B.track) { handled(); void B.cuePlay(); }
+          return;
+        case "KeyS":
+          if (A.track) { handled(); A.setCueHere(); }
+          return;
+        case "KeyL":
+          if (B.track) { handled(); B.setCueHere(); }
+          return;
+        case "KeyZ":
+          handled(); setCrossfade(0);
+          return;
+        case "KeyX":
+          handled(); setCrossfade(1);
+          return;
+        case "KeyC":
+          handled(); setCrossfade(0.5);
+          return;
+        case "Space":
+          if (A.track) { handled(); A.toggle(); }
+          else if (B.track) { handled(); B.toggle(); }
+          return;
+        default:
+          break;
+      }
+
+      // Pitch nudges. Small steps, because this is for riding a deck into
+      // time rather than changing key.
+      const nudge: Record<string, [Deck, number]> = {
+        Digit1: [A, -0.5],
+        Digit2: [A, -0.1],
+        Digit3: [A, 0.1],
+        Digit4: [A, 0.5],
+        Digit7: [B, -0.5],
+        Digit8: [B, -0.1],
+        Digit9: [B, 0.1],
+        Digit0: [B, 0.5],
+      };
+      const hit = nudge[e.code];
+      if (hit && hit[0].track) {
+        handled();
+        const [deck, delta] = hit;
+        const next = Math.max(-8, Math.min(8, Math.round((deck.pitch + delta) * 10) / 10));
+        deck.setPitch(next);
+      }
     };
+
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [deckA, deckB]);
@@ -300,16 +416,40 @@ export function Decks({
 
   return (
     <section className="mt-stack-lg border-t border-dashed border-outline-variant pt-stack-md">
-      <div className="flex items-baseline justify-between mb-stack-md">
+      <div className="flex flex-wrap items-baseline justify-between gap-stack-sm mb-stack-md">
         <p className="font-label-mono text-label-mono text-secondary">// DECKS</p>
         <span className="font-label-mono text-label-mono text-secondary">
-          space plays, double click a fader to reset
+          <strong className="text-primary">Q</strong>/<strong className="text-primary">P</strong> play
+          {"  "}
+          <strong className="text-primary">W</strong>/<strong className="text-primary">O</strong> cue play
+          {"  "}
+          <strong className="text-primary">S</strong>/<strong className="text-primary">L</strong> set cue
+          {"  "}
+          <strong className="text-primary">1-4</strong>/<strong className="text-primary">7-0</strong> pitch
+          {"  "}
+          <strong className="text-primary">Z</strong>/<strong className="text-primary">C</strong>/<strong className="text-primary">X</strong> fader
         </span>
       </div>
 
       <div className="grid gap-stack-md md:grid-cols-2">
-        <DeckPanel deck={deckA} side="A" eq={eqA} onEq={(b, v) => applyEq("A", b, v)} />
-        <DeckPanel deck={deckB} side="B" eq={eqB} onEq={(b, v) => applyEq("B", b, v)} />
+        <DeckPanel
+          deck={deckA}
+          side="A"
+          eq={eqA}
+          onEq={(b, v) => applyEq("A", b, v)}
+          zoomSec={zoomA}
+          onZoom={setZoomA}
+          keyHint={{ play: "Q", cue: "W" }}
+        />
+        <DeckPanel
+          deck={deckB}
+          side="B"
+          eq={eqB}
+          onEq={(b, v) => applyEq("B", b, v)}
+          zoomSec={zoomB}
+          onZoom={setZoomB}
+          keyHint={{ play: "P", cue: "O" }}
+        />
       </div>
 
       <div className="mt-stack-md border border-primary p-gutter">

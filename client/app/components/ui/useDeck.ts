@@ -13,6 +13,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 export interface DeckWaveform {
   durationSec: number;
+  /** Derived from the analysed tempo, absent when a track has no bpm. */
+  grid: { bpm: number; beatSec: number; offsetSec: number } | null;
   overview: { buckets: number; peaks: Int8Array };
   detail: { buckets: number; peaks: Int8Array };
 }
@@ -250,23 +252,45 @@ export function useDeck(serverUrl: string) {
     [duration, playing, startAt]
   );
 
-  // Cue behaves like a CDJ: press cue when stopped to set the point, press it
-  // while playing to jump back to it and stop.
+  // Cue behaves like a CDJ:
+  //   playing            jump back to the cue point and stop
+  //   stopped, not at it return to it
+  //   stopped, already at it  set a new cue point here
+  //
+  // The middle case is what was missing. Pressing cue while stopped only ever
+  // moved the marker, so after seeking somewhere else there was no way back,
+  // and the button looked like it did nothing.
   const cue = useCallback(() => {
     if (playing) {
       stopSource();
       setPlaying(false);
       offsetRef.current = cuePoint;
       setPosition(cuePoint);
-    } else {
+      return;
+    }
+    // Within a frame of the cue point counts as "already there".
+    if (Math.abs(offsetRef.current - cuePoint) < 0.02) {
       setCuePoint(offsetRef.current);
+    } else {
+      offsetRef.current = cuePoint;
+      setPosition(cuePoint);
     }
   }, [playing, cuePoint, stopSource]);
 
-  const cuePlay = useCallback(() => {
-    seek(cuePoint);
-    void play();
-  }, [cuePoint, seek, play]);
+  // Drop a cue point wherever the playhead is, whatever the transport state.
+  const setCueHere = useCallback(() => {
+    setCuePoint(offsetRef.current);
+  }, []);
+
+  // Jump to the cue point and play from it. This is the one you hit to bring
+  // a deck in on the beat.
+  const cuePlay = useCallback(async () => {
+    const ctx = ctxRef.current;
+    if (!ctx || !bufferRef.current) return;
+    if (ctx.state === "suspended") await ctx.resume();
+    startAt(cuePoint);
+    setPlaying(true);
+  }, [cuePoint, startAt]);
 
   // Pitch applies live, so a running deck can be nudged into time.
   useEffect(() => {
@@ -328,6 +352,7 @@ export function useDeck(serverUrl: string) {
     seek,
     cue,
     cuePlay,
+    setCueHere,
     setPitch,
     setEq,
     setTrim,

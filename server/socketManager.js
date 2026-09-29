@@ -310,11 +310,15 @@ function initSocketManager(io) {
       }
 
       try {
-        const wf = await waveform.build(full);
+        // The beat grid is derived from the analysed tempo, so pass whatever
+        // the library holds for this track.
+        const known = library.getTrack(fileName);
+        const wf = await waveform.build(full, known?.bpm ?? null);
         ack({
           ok: true,
           fileName,
           durationSec: wf.durationSec,
+          grid: wf.grid,
           overview: { buckets: wf.overview.buckets, peaks: wf.overview.peaks },
           detail: { buckets: wf.detail.buckets, peaks: wf.detail.peaks },
         });

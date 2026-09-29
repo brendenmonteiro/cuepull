@@ -14,12 +14,19 @@ function cssVar(el: HTMLElement, name: string, fallback: string) {
   return v || fallback;
 }
 
+export interface BeatGrid {
+  bpm: number;
+  beatSec: number;
+  offsetSec: number;
+}
+
 export function Waveform({
   peaks,
   buckets,
   durationSec,
   position,
   cuePoint,
+  grid,
   mode,
   windowSec = 8,
   height = 64,
@@ -30,6 +37,7 @@ export function Waveform({
   durationSec: number;
   position: number;
   cuePoint?: number;
+  grid?: BeatGrid | null;
   mode: "overview" | "detail";
   windowSec?: number;
   height?: number;
@@ -81,6 +89,36 @@ export function Waveform({
     const span = Math.max(1, lastBucket - firstBucket);
     const playheadBucket = (position / durationSec) * buckets;
 
+    // Seconds visible at each edge, used for both the grid and seeking.
+    const viewStart =
+      mode === "detail" ? position - windowSec / 2 : 0;
+    const viewSpan = mode === "detail" ? windowSec : durationSec;
+
+    // Beat grid behind the waveform. Bars (every fourth beat) are drawn
+    // solid and full height, plain beats are short ticks, so the phrase
+    // structure is readable at a glance without cluttering the view.
+    if (grid && grid.beatSec > 0 && mode === "detail") {
+      const first = Math.floor((viewStart - grid.offsetSec) / grid.beatSec);
+      const last = Math.ceil((viewStart + viewSpan - grid.offsetSec) / grid.beatSec);
+      // Skip drawing if the beats would be closer together than a few pixels.
+      if (((grid.beatSec / viewSpan) * w) >= 3) {
+        for (let n = first; n <= last; n++) {
+          const t = grid.offsetSec + n * grid.beatSec;
+          if (t < 0) continue;
+          const x = ((t - viewStart) / viewSpan) * w;
+          if (x < 0 || x > w) continue;
+          const isBar = n >= 0 && n % 4 === 0;
+          ctx.strokeStyle = played;
+          ctx.globalAlpha = isBar ? 0.55 : 0.22;
+          ctx.beginPath();
+          ctx.moveTo(x + 0.5, isBar ? 0 : h * 0.78);
+          ctx.lineTo(x + 0.5, h);
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+      }
+    }
+
     // One vertical line per pixel column, picking the loudest bucket that
     // falls in it, so a long track does not alias into a thin smear.
     for (let x = 0; x < w; x++) {
@@ -124,7 +162,7 @@ export function Waveform({
     const px = mode === "detail" ? w / 2 : (position / durationSec) * w;
     ctx.fillStyle = ahead;
     ctx.fillRect(px - 1, 0, 2, h);
-  }, [peaks, buckets, durationSec, position, cuePoint, mode, windowSec, height]);
+  }, [peaks, buckets, durationSec, position, cuePoint, grid, mode, windowSec, height]);
 
   const click = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!onSeek || !durationSec) return;
