@@ -3,9 +3,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { connectSocket } from "@/lib/socket";
-import { Track, TrackMeta, LibraryStats, AppSettings } from "@/types";
+import { Track, TrackMeta, LibraryStats, AppSettings, Setlist as SetlistData } from "@/types";
 import { TrackCard } from "@/app/components/ui/TrackCard";
 import { CrateIntel } from "@/app/components/ui/CrateIntel";
+import { Setlist } from "@/app/components/ui/Setlist";
 import { SettingsDrawer } from "@/app/components/ui/SettingsDrawer";
 
 type Filter = "all" | "active" | "staged" | "ready" | "played";
@@ -28,6 +29,8 @@ export default function DashboardPage() {
   const [queueId, setQueueId] = useState("----");
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [libStats, setLibStats] = useState<LibraryStats | null>(null);
+  const [setlist, setSetlist] = useState<SetlistData | null>(null);
+  const [setlistLoading, setSetlistLoading] = useState(false);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -68,6 +71,10 @@ export default function DashboardPage() {
     socket.on("disconnect", () => setConnected(false));
     socket.on("queue:sync", (q: Track[]) => setQueue(q));
     socket.on("stats:update", (payload: LibraryStats) => setLibStats(payload));
+    socket.on("setlist:update", (payload: SetlistData) => {
+      setSetlist(payload);
+      setSetlistLoading(false);
+    });
     socket.on("settings:update", (payload: AppSettings) => setSettings(payload));
     socket.on("dj:track-added", (track: Track) => {
       setQueue((prev) => prev.find((t) => t.trackId === track.trackId) ? prev : [...prev, track]);
@@ -85,7 +92,7 @@ export default function DashboardPage() {
       setChoice({ open: true, trackId, hasExtended, extendedTitle });
     });
     return () => {
-      ["connect","disconnect","queue:sync","dj:track-added","dj:track-updated","dj:progress","request:extended-result","stats:update","settings:update"]
+      ["connect","disconnect","queue:sync","dj:track-added","dj:track-updated","dj:progress","request:extended-result","stats:update","settings:update","setlist:update"]
         .forEach((e) => socket.off(e));
     };
   }, []);
@@ -251,6 +258,19 @@ export default function DashboardPage() {
   // rekordbox exchange. Export writes BPM and key so tracks import already
   // analysed; import pulls back the play counts and cue points this app has
   // no way to know.
+  const buildSetlist = useCallback(() => {
+    setSetlistLoading(true);
+    socketRef.current.emit(
+      "setlist:build",
+      {},
+      (r: { ok: boolean; setlist?: SetlistData; error?: string }) => {
+        setSetlistLoading(false);
+        if (r?.ok && r.setlist) setSetlist(r.setlist);
+        else setNotice(r?.error ?? "Could not build a setlist.");
+      }
+    );
+  }, []);
+
   const exportRekordbox = useCallback(async () => {
     if (!window.cuepull?.isDesktop) return;
     const pick = await window.cuepull.pickRekordboxSave();
@@ -496,6 +516,14 @@ export default function DashboardPage() {
         </section>
 
         <CrateIntel stats={libStats} />
+
+        {libStats && libStats.totals.tracks > 1 && (
+          <Setlist
+            setlist={setlist}
+            loading={setlistLoading}
+            onBuild={buildSetlist}
+          />
+        )}
 
         {/* rekordbox exchange */}
         {libStats && libStats.totals.tracks > 0 && (

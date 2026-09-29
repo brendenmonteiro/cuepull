@@ -121,6 +121,48 @@ export interface LibraryStats {
   playSource: "rekordbox" | "manual" | null;
 }
 
+export interface SetlistTrack {
+  fileName: string;
+  title: string;
+  artist: string;
+  bpm: number | null;
+  camelot: string | null;
+  musicalKey: string | null;
+  durationSec: number | null;
+  position: number;
+  energy: number;
+}
+
+export interface SetlistTransition {
+  fromFile: string;
+  toFile: string;
+  keyNote: string;
+  bpmNote: string;
+  bpmDelta: number | null;
+  keyDistance: number;
+  tempoDistance: number;
+  /** 0 to 1, higher is smoother. Below 0.5 is worth a second look. */
+  score: number;
+  rough: boolean;
+}
+
+export interface SetlistOutlier extends Omit<SetlistTrack, "position" | "energy"> {
+  reason: string;
+}
+
+export interface Setlist {
+  tracks: SetlistTrack[];
+  transitions: SetlistTransition[];
+  outliers: SetlistOutlier[];
+  stats: {
+    count: number;
+    rough: number;
+    averageScore: number | null;
+    totalSeconds: number;
+    bpmRange: { min: number; max: number } | null;
+  } | null;
+}
+
 export type FormatMode =
   | "mp3" | "flac" | "wav"
   | "flac-then-mp3" | "wav-then-flac"
