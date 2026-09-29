@@ -5,6 +5,7 @@ const library = require("./library");
 const stats = require("./stats");
 const { analyseFile } = require("./analyser");
 const rekordbox = require("./rekordbox");
+const setlist = require("./setlist");
 const settings = require("./settings");
 const { DOWNLOADS_DIR } = require("./musicHandler");
 const {
@@ -286,6 +287,29 @@ function initSocketManager(io) {
     }));
 
     // Stats panel can ask for a refresh at any time.
+    // Order the library into something playable. Cheap enough to run on
+    // demand: around 140ms for 55 tracks, so there is nothing to cache.
+    socket.on("setlist:build", safeHandler("setlist", (payload, ack) => {
+      const p = payload && typeof payload === "object" ? payload : {};
+
+      let tracks = library.allTracks();
+
+      // An explicit selection wins, so the UI can order a subset.
+      if (Array.isArray(p.fileNames) && p.fileNames.length) {
+        const want = new Set(
+          p.fileNames.filter((f) => typeof f === "string").slice(0, 2000)
+        );
+        tracks = tracks.filter((t) => want.has(t.fileName));
+      }
+
+      const built = setlist.buildSetlist(tracks, {
+        startWith: typeof p.startWith === "string" ? p.startWith : null,
+      });
+
+      socket.emit("setlist:update", built);
+      if (typeof ack === "function") ack({ ok: true, setlist: built });
+    }));
+
     socket.on("stats:request", safeHandler("stats", (_p, ack) => {
       const payload = stats.build();
       socket.emit("stats:update", payload);
