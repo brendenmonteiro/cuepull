@@ -63,6 +63,41 @@ function Knob({
   );
 }
 
+// Vertical channel fader, sitting outside its deck the way it would on a
+// mixer. A range input rotated with writing-mode rather than a CSS transform,
+// so it keeps normal keyboard and pointer behaviour.
+function ChannelFader({
+  value,
+  onChange,
+  side,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  side: "A" | "B";
+}) {
+  return (
+    <div className="flex flex-col items-center gap-stack-sm border border-primary px-2 py-3 shrink-0">
+      <span className="font-label-mono text-label-mono text-secondary">
+        {Math.round(value * 100)}
+      </span>
+      <input
+        type="range"
+        min={0}
+        max={1}
+        step={0.01}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        onDoubleClick={() => onChange(1)}
+        className="accent-primary h-full min-h-[8rem] cursor-pointer"
+        style={{ writingMode: "vertical-lr", direction: "rtl" }}
+        aria-label={`Deck ${side} volume`}
+        title="Channel volume. Double click for full."
+      />
+      <span className="font-label-caps text-label-caps uppercase">{side}</span>
+    </div>
+  );
+}
+
 function DeckPanel({
   deck,
   side,
@@ -184,10 +219,16 @@ function DeckPanel({
           SET
         </button>
         <button
-          onClick={deck.cue}
+          onPointerDown={(e) => {
+            e.currentTarget.setPointerCapture(e.pointerId);
+            void deck.cuePreviewStart();
+          }}
+          onPointerUp={deck.cuePreviewEnd}
+          onPointerCancel={deck.cuePreviewEnd}
+          onPointerLeave={deck.cuePreviewEnd}
           disabled={!track}
-          className="flex-1 font-label-caps text-label-caps border border-primary py-2 hover:bg-primary hover:text-on-primary transition-none disabled:opacity-30"
-          title={`Return to the cue point, or stop back at it while playing  [${keyHint.cue}]`}
+          className="flex-1 font-label-caps text-label-caps border border-primary py-2 hover:bg-primary hover:text-on-primary active:bg-primary active:text-on-primary transition-none disabled:opacity-30 select-none"
+          title={`Hold to preview from the cue point, release to snap back  [${keyHint.cue} plays from it]`}
         >
           CUE
         </button>
@@ -353,10 +394,20 @@ export function Decks({
         case "KeyP":
           if (B.track) { handled(); B.toggle(); }
           return;
+        // Hold to preview from the cue point, release to snap back. e.repeat
+        // guards the key auto-repeating while held, which would otherwise
+        // restart the preview many times a second.
         case "KeyW":
-          if (A.track) { handled(); void A.cuePlay(); }
+          if (A.track && !e.repeat) { handled(); void A.cuePreviewStart(); }
           return;
         case "KeyO":
+          if (B.track && !e.repeat) { handled(); void B.cuePreviewStart(); }
+          return;
+        // Commit: jump to the cue point and keep running.
+        case "KeyE":
+          if (A.track) { handled(); void A.cuePlay(); }
+          return;
+        case "KeyI":
           if (B.track) { handled(); void B.cuePlay(); }
           return;
         case "KeyS":
@@ -403,8 +454,26 @@ export function Decks({
       }
     };
 
+    // Releasing the preview key snaps the deck back. Also fires on blur,
+    // because a keyup that lands on another window would otherwise never
+    // arrive and leave a deck running.
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code === "KeyW") deckA.cuePreviewEnd();
+      if (e.code === "KeyO") deckB.cuePreviewEnd();
+    };
+    const onBlur = () => {
+      deckA.cuePreviewEnd();
+      deckB.cuePreviewEnd();
+    };
+
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
+    };
   }, [deckA, deckB]);
 
   // How far apart the two decks are, so you can see whether they will ride
@@ -421,7 +490,9 @@ export function Decks({
         <span className="font-label-mono text-label-mono text-secondary">
           <strong className="text-primary">Q</strong>/<strong className="text-primary">P</strong> play
           {"  "}
-          <strong className="text-primary">W</strong>/<strong className="text-primary">O</strong> cue play
+          <strong className="text-primary">W</strong>/<strong className="text-primary">O</strong> hold to cue
+          {"  "}
+          <strong className="text-primary">E</strong>/<strong className="text-primary">I</strong> cue play
           {"  "}
           <strong className="text-primary">S</strong>/<strong className="text-primary">L</strong> set cue
           {"  "}
@@ -431,25 +502,36 @@ export function Decks({
         </span>
       </div>
 
+      {/* Faders sit on the outside edges, mirroring a mixer layout. */}
       <div className="grid gap-stack-md md:grid-cols-2">
-        <DeckPanel
-          deck={deckA}
-          side="A"
-          eq={eqA}
-          onEq={(b, v) => applyEq("A", b, v)}
-          zoomSec={zoomA}
-          onZoom={setZoomA}
-          keyHint={{ play: "Q", cue: "W" }}
-        />
-        <DeckPanel
-          deck={deckB}
-          side="B"
-          eq={eqB}
-          onEq={(b, v) => applyEq("B", b, v)}
-          zoomSec={zoomB}
-          onZoom={setZoomB}
-          keyHint={{ play: "P", cue: "O" }}
-        />
+        <div className="flex gap-stack-sm items-stretch">
+          <ChannelFader value={deckA.volume} onChange={deckA.setVolume} side="A" />
+          <div className="flex-1 min-w-0">
+            <DeckPanel
+              deck={deckA}
+              side="A"
+              eq={eqA}
+              onEq={(b, v) => applyEq("A", b, v)}
+              zoomSec={zoomA}
+              onZoom={setZoomA}
+              keyHint={{ play: "Q", cue: "W" }}
+            />
+          </div>
+        </div>
+        <div className="flex gap-stack-sm items-stretch">
+          <div className="flex-1 min-w-0">
+            <DeckPanel
+              deck={deckB}
+              side="B"
+              eq={eqB}
+              onEq={(b, v) => applyEq("B", b, v)}
+              zoomSec={zoomB}
+              onZoom={setZoomB}
+              keyHint={{ play: "P", cue: "O" }}
+            />
+          </div>
+          <ChannelFader value={deckB.volume} onChange={deckB.setVolume} side="B" />
+        </div>
       </div>
 
       <div className="mt-stack-md border border-primary p-gutter">

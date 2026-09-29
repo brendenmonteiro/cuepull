@@ -66,6 +66,7 @@ export function useDeck(serverUrl: string) {
   const [position, setPosition] = useState(0);
   const [pitch, setPitch] = useState(0); // percent, -8 to +8
   const [cuePoint, setCuePoint] = useState(0);
+  const [volume, setVolumeState] = useState(1); // channel fader, 0 to 1
 
   // Build the node chain once.
   useEffect(() => {
@@ -282,12 +283,36 @@ export function useDeck(serverUrl: string) {
     setCuePoint(offsetRef.current);
   }, []);
 
-  // Jump to the cue point and play from it. This is the one you hit to bring
-  // a deck in on the beat.
+  // Momentary cue preview, the way a CDJ behaves: hold to audition from the
+  // cue point, release and the deck snaps back and stops. Spamming it can
+  // never leave the track running, which is what made it feel wrong before.
+  const previewingRef = useRef(false);
+
+  const cuePreviewStart = useCallback(async () => {
+    const ctx = ctxRef.current;
+    if (!ctx || !bufferRef.current || previewingRef.current) return;
+    if (ctx.state === "suspended") await ctx.resume();
+    previewingRef.current = true;
+    startAt(cuePoint);
+    setPlaying(true);
+  }, [cuePoint, startAt]);
+
+  const cuePreviewEnd = useCallback(() => {
+    if (!previewingRef.current) return;
+    previewingRef.current = false;
+    stopSource();
+    setPlaying(false);
+    offsetRef.current = cuePoint;
+    setPosition(cuePoint);
+  }, [cuePoint, stopSource]);
+
+  // Jump to the cue point and keep playing. This is the one that commits, so
+  // it clears the preview flag rather than arming a snap back.
   const cuePlay = useCallback(async () => {
     const ctx = ctxRef.current;
     if (!ctx || !bufferRef.current) return;
     if (ctx.state === "suspended") await ctx.resume();
+    previewingRef.current = false;
     startAt(cuePoint);
     setPlaying(true);
   }, [cuePoint, startAt]);
@@ -311,8 +336,13 @@ export function useDeck(serverUrl: string) {
     eq[band].gain.value = db;
   }, []);
 
-  const setTrim = useCallback((gain: number) => {
-    if (trimRef.current) trimRef.current.gain.value = gain;
+  // Channel fader. Squared so the travel feels like a mixer: most of the
+  // useful range sits in the top half rather than everything happening in the
+  // last centimetre, which is how a linear gain control behaves.
+  const setVolume = useCallback((v: number) => {
+    const clamped = Math.max(0, Math.min(1, v));
+    setVolumeState(clamped);
+    if (trimRef.current) trimRef.current.gain.value = clamped * clamped;
   }, []);
 
   const eject = useCallback(() => {
@@ -352,10 +382,13 @@ export function useDeck(serverUrl: string) {
     seek,
     cue,
     cuePlay,
+    cuePreviewStart,
+    cuePreviewEnd,
     setCueHere,
+    volume,
+    setVolume,
     setPitch,
     setEq,
-    setTrim,
     eject,
   };
 }
