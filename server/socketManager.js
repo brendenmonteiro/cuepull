@@ -6,6 +6,7 @@ const stats = require("./stats");
 const { analyseFile } = require("./analyser");
 const rekordbox = require("./rekordbox");
 const setlist = require("./setlist");
+const waveform = require("./waveform");
 const settings = require("./settings");
 const { DOWNLOADS_DIR } = require("./musicHandler");
 const {
@@ -287,6 +288,41 @@ function initSocketManager(io) {
     }));
 
     // Stats panel can ask for a refresh at any time.
+    // Peaks for a deck waveform. Cached, so this is a few milliseconds after
+    // the first call for a given file.
+    socket.on("waveform:get", safeHandler("waveform", async ({ fileName }, ack) => {
+      if (typeof ack !== "function") return;
+
+      if (typeof fileName !== "string" || !fileName || fileName.length > 400) {
+        return ack({ ok: false, error: "bad file name" });
+      }
+
+      // fileName arrives from the page, so it is treated as hostile. Resolve
+      // it and confirm the result is still inside the library folder, which
+      // stops "../../.." reaching anything else on disk.
+      const root = path.resolve(DOWNLOADS_DIR);
+      const full = path.resolve(root, ...fileName.split("/"));
+      if (full !== root && !full.startsWith(root + path.sep)) {
+        return ack({ ok: false, error: "file is outside the library" });
+      }
+      if (!fs.existsSync(full)) {
+        return ack({ ok: false, error: "file not found" });
+      }
+
+      try {
+        const wf = await waveform.build(full);
+        ack({
+          ok: true,
+          fileName,
+          durationSec: wf.durationSec,
+          overview: { buckets: wf.overview.buckets, peaks: wf.overview.peaks },
+          detail: { buckets: wf.detail.buckets, peaks: wf.detail.peaks },
+        });
+      } catch (err) {
+        ack({ ok: false, error: err.message || "could not read the audio" });
+      }
+    }));
+
     // Order the library into something playable. Cheap enough to run on
     // demand: around 140ms for 55 tracks, so there is nothing to cache.
     socket.on("setlist:build", safeHandler("setlist", (payload, ack) => {

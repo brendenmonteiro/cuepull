@@ -7,6 +7,8 @@ import { Track, TrackMeta, LibraryStats, AppSettings, Setlist as SetlistData } f
 import { TrackCard } from "@/app/components/ui/TrackCard";
 import { CrateIntel } from "@/app/components/ui/CrateIntel";
 import { Setlist } from "@/app/components/ui/Setlist";
+import { Decks } from "@/app/components/ui/Decks";
+import type { DeckTrack, DeckWaveform } from "@/app/components/ui/useDeck";
 import { SettingsDrawer } from "@/app/components/ui/SettingsDrawer";
 
 type Filter = "all" | "active" | "staged" | "ready" | "played";
@@ -31,6 +33,9 @@ export default function DashboardPage() {
   const [libStats, setLibStats] = useState<LibraryStats | null>(null);
   const [setlist, setSetlist] = useState<SetlistData | null>(null);
   const [setlistLoading, setSetlistLoading] = useState(false);
+  // A nonce rather than just the track, so loading the same track twice in a
+  // row still registers as a new request.
+  const [deckLoad, setDeckLoad] = useState<{ track: DeckTrack; nonce: number } | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -258,6 +263,56 @@ export default function DashboardPage() {
   // rekordbox exchange. Export writes BPM and key so tracks import already
   // analysed; import pulls back the play counts and cue points this app has
   // no way to know.
+  // Peaks come over the socket as binary, so they need wrapping in an
+  // Int8Array before the canvas can walk them.
+  const fetchWaveform = useCallback(
+    (fileName: string): Promise<DeckWaveform | null> =>
+      new Promise((resolve) => {
+        socketRef.current.emit(
+          "waveform:get",
+          { fileName },
+          (r: {
+            ok: boolean;
+            durationSec?: number;
+            overview?: { buckets: number; peaks: ArrayBuffer | Uint8Array };
+            detail?: { buckets: number; peaks: ArrayBuffer | Uint8Array };
+          }) => {
+            if (!r?.ok || !r.overview || !r.detail || r.durationSec == null) {
+              return resolve(null);
+            }
+            const toI8 = (p: ArrayBuffer | Uint8Array) =>
+              p instanceof Uint8Array
+                ? new Int8Array(p.buffer, p.byteOffset, p.byteLength)
+                : new Int8Array(p);
+            resolve({
+              durationSec: r.durationSec,
+              overview: { buckets: r.overview.buckets, peaks: toI8(r.overview.peaks) },
+              detail: { buckets: r.detail.buckets, peaks: toI8(r.detail.peaks) },
+            });
+          }
+        );
+      }),
+    []
+  );
+
+  const loadToDeck = useCallback(
+    (fileName: string) => {
+      const t = setlist?.tracks.find((x) => x.fileName === fileName);
+      if (!t) return;
+      setDeckLoad({
+        track: {
+          fileName: t.fileName,
+          title: t.title || t.fileName,
+          artist: t.artist || "",
+          bpm: t.bpm,
+          camelot: t.camelot,
+        },
+        nonce: Date.now(),
+      });
+    },
+    [setlist]
+  );
+
   const buildSetlist = useCallback(() => {
     setSetlistLoading(true);
     socketRef.current.emit(
@@ -522,6 +577,16 @@ export default function DashboardPage() {
             setlist={setlist}
             loading={setlistLoading}
             onBuild={buildSetlist}
+            onPlay={loadToDeck}
+          />
+        )}
+
+        {setlist && setlist.tracks.length > 0 && (
+          <Decks
+            serverUrl={process.env.NEXT_PUBLIC_SERVER_URL ?? ""}
+            loadRequest={deckLoad}
+            onLoaded={() => setDeckLoad(null)}
+            fetchWaveform={fetchWaveform}
           />
         )}
 
