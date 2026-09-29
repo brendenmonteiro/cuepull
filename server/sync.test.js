@@ -100,5 +100,129 @@ check(
   )
 );
 
+// ── Beat aligned start ──────────────────────────────────────────────────
+//
+// Mirrors the scheduling in syncTo(). The point of sync is that the two
+// downbeats coincide, so these check the arithmetic that picks when to start
+// the follower and from where.
+
+function planStart({
+  ctxNow,
+  leaderPos,
+  leaderRate,
+  leaderGrid,
+  followerPos,
+  followerRate,
+  followerGrid,
+  lead = 0.09,
+}) {
+  const lBeat = leaderGrid.beatSec / leaderRate;
+  const fBeat = followerGrid.beatSec / followerRate;
+
+  const targetTime = ctxNow + lead;
+  const lAtTarget = leaderPos + lead * leaderRate;
+  const beatsIn = (lAtTarget - leaderGrid.offsetSec) / lBeat;
+  const nextBeatIndex = Math.ceil(beatsIn);
+  const lAtBeat = leaderGrid.offsetSec + nextBeatIndex * lBeat;
+  const startWhen = targetTime + (lAtBeat - lAtTarget) / leaderRate;
+
+  const fBeatsIn = (followerPos - followerGrid.offsetSec) / fBeat;
+  const fStart = followerGrid.offsetSec + Math.round(fBeatsIn) * fBeat;
+
+  return { startWhen, fStart, lAtBeat, lBeat, fBeat, nextBeatIndex };
+}
+
+console.log("Beat aligned start");
+
+{
+  const grid = { bpm: 128, beatSec: 60 / 128, offsetSec: 0.2 };
+  const p = planStart({
+    ctxNow: 10,
+    leaderPos: 31.4,
+    leaderRate: 1,
+    leaderGrid: grid,
+    followerPos: 8.3,
+    followerRate: 1,
+    followerGrid: grid,
+  });
+
+  check("start is in the future", p.startWhen > 10, `got ${p.startWhen}`);
+  check(
+    "start is not scheduled too far out",
+    p.startWhen < 10 + 0.09 + grid.beatSec + 1e-9,
+    `got ${p.startWhen - 10}s ahead`
+  );
+  // The leader must be exactly on a beat at the moment the follower starts.
+  const leaderAtStart = 31.4 + (p.startWhen - 10);
+  const phase = ((leaderAtStart - grid.offsetSec) / p.lBeat) % 1;
+  check(
+    "leader is on a grid line when the follower starts",
+    near(phase, 0, 1e-6) || near(phase, 1, 1e-6),
+    `phase ${phase}`
+  );
+  // And the follower must begin exactly on one of its own.
+  const fPhase = ((p.fStart - grid.offsetSec) / p.fBeat) % 1;
+  check(
+    "follower starts on its own grid line",
+    near(fPhase, 0, 1e-6) || near(fPhase, 1, 1e-6),
+    `phase ${fPhase}`
+  );
+}
+
+{
+  // Different tempos and offsets, with the leader pitched up.
+  const lGrid = { bpm: 128, beatSec: 60 / 128, offsetSec: 0.05 };
+  const fGrid = { bpm: 126, beatSec: 60 / 126, offsetSec: 0.71 };
+  const leaderRate = 1.03;
+  const followerRate = (128 * 1.03) / 126;
+  const p = planStart({
+    ctxNow: 100,
+    leaderPos: 63.77,
+    leaderRate,
+    leaderGrid: lGrid,
+    followerPos: 12.04,
+    followerRate,
+    followerGrid: fGrid,
+  });
+
+  const leaderAtStart = 63.77 + (p.startWhen - 100) * leaderRate;
+  const lPhase = ((leaderAtStart - lGrid.offsetSec) / (lGrid.beatSec / leaderRate)) % 1;
+  check(
+    "works with mismatched grids and a pitched leader",
+    near(lPhase, 0, 1e-6) || near(lPhase, 1, 1e-6),
+    `phase ${lPhase}`
+  );
+  check("follower start is not negative", p.fStart >= 0, `got ${p.fStart}`);
+
+  // Once both run, a beat of the leader and a beat of the follower are the
+  // same length, which is what keeps them together.
+  check(
+    "beat lengths match after sync",
+    near(lGrid.beatSec / leaderRate, fGrid.beatSec / followerRate, 1e-6),
+    `${lGrid.beatSec / leaderRate} vs ${fGrid.beatSec / followerRate}`
+  );
+}
+
+// ── Lock correction ─────────────────────────────────────────────────────
+
+function lockCorrection(drift) {
+  if (Math.abs(drift) > 0.33) return null; // a jump, not drift
+  return Math.max(-0.004, Math.min(0.004, -drift * 0.02));
+}
+
+console.log("Lock correction");
+check("no drift, no correction", lockCorrection(0) === 0);
+check("behind pulls forward", lockCorrection(-0.1) > 0);
+check("ahead pulls back", lockCorrection(0.1) < 0);
+check("correction stays inaudible", Math.abs(lockCorrection(0.3)) <= 0.004);
+check("a jump is left alone", lockCorrection(0.4) === null);
+check(
+  "correction always opposes the drift",
+  [-0.3, -0.2, -0.05, 0.05, 0.2, 0.3].every((d) => {
+    const c = lockCorrection(d);
+    return c !== null && Math.sign(c) === -Math.sign(d);
+  })
+);
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

@@ -143,8 +143,11 @@ export function useDeck(serverUrl: string) {
     sourceRef.current = null;
   }, []);
 
+  // `when` is an AudioContext timestamp. Scheduling a start in the future is
+  // what makes beat sync exact: the browser begins the buffer at that instant
+  // on the audio clock, rather than whenever a callback happens to run.
   const startAt = useCallback(
-    (offset: number) => {
+    (offset: number, when = 0) => {
       const ctx = ctxRef.current;
       const buf = bufferRef.current;
       const eq = eqRef.current;
@@ -160,15 +163,27 @@ export function useDeck(serverUrl: string) {
         // Only a natural end should clear the flag; a seek stops the node too.
         if (sourceRef.current === src) setPlaying(false);
       };
-      src.start(0, Math.max(0, Math.min(offset, buf.duration)));
+      const at = when && when > ctx.currentTime ? when : 0;
+      src.start(at, Math.max(0, Math.min(offset, buf.duration)));
 
       sourceRef.current = src;
-      startedAtRef.current = ctx.currentTime;
+      startedAtRef.current = at || ctx.currentTime;
       offsetRef.current = offset;
       setPosition(offset);
     },
     [pitch, stopSource]
   );
+
+  // Position straight off the audio clock, not the once-a-frame React state.
+  // Beat alignment needs millisecond accuracy and `position` is up to 16ms
+  // stale, which at 128bpm is a tenth of a beat.
+  const exactPosition = useCallback(() => {
+    const ctx = ctxRef.current;
+    if (!ctx || !sourceRef.current) return offsetRef.current;
+    const elapsed =
+      (ctx.currentTime - startedAtRef.current) * sourceRef.current.playbackRate.value;
+    return offsetRef.current + Math.max(0, elapsed);
+  }, []);
 
   const load = useCallback(
     async (
@@ -336,6 +351,26 @@ export function useDeck(serverUrl: string) {
     eq[band].gain.value = db;
   }, []);
 
+  // A momentary rate change used to pull a deck back onto the beat without
+  // touching the pitch fader. Banks the time played at the old rate first,
+  // otherwise the position calculation jumps.
+  const nudgeRate = useCallback((multiplier: number) => {
+    const ctx = ctxRef.current;
+    const src = sourceRef.current;
+    if (!ctx || !src) return;
+    const elapsed = (ctx.currentTime - startedAtRef.current) * src.playbackRate.value;
+    offsetRef.current += elapsed;
+    startedAtRef.current = ctx.currentTime;
+    src.playbackRate.value = multiplier;
+  }, []);
+
+  // The rate the deck is actually running at, which during a sync correction
+  // is briefly not the same as the pitch fader.
+  const currentRate = useCallback(
+    () => sourceRef.current?.playbackRate.value ?? 1 + pitch / 100,
+    [pitch]
+  );
+
   // Channel fader. Squared so the travel feels like a mixer: most of the
   // useful range sits in the top half rather than everything happening in the
   // last centimetre, which is how a linear gain control behaves.
@@ -375,6 +410,10 @@ export function useDeck(serverUrl: string) {
     playingBpm,
     outputNode: outRef,
     context: ctxRef,
+    startAt,
+    exactPosition,
+    nudgeRate,
+    currentRate,
     load,
     play,
     pause,

@@ -581,6 +581,8 @@ export function Decks({
   // hand. A large correction will audibly change its key, which is why the
   // button reports the amount and refuses a match it cannot reach.
   const [syncNote, setSyncNote] = useState<string | null>(null);
+  // Which deck is the sync leader, or null when nothing is locked.
+  const [lockedTo, setLockedTo] = useState<"A" | "B" | null>(null);
 
   // Clear the note after a few seconds so it does not sit there stale.
   useEffect(() => {
@@ -634,26 +636,101 @@ export function Decks({
         `Deck ${leaderSide === "A" ? "B" : "A"} pitched ${nextPitch > 0 ? "+" : ""}${nextPitch}% to match`
       );
 
-      // Phase: nudge the follower so its next beat falls with the leader's.
+      // Phase: line the grids up so downbeats land together.
       const lGrid = leader.waveform?.grid;
       const fGrid = follower.waveform?.grid;
       if (!lGrid || !fGrid || !leader.playing) return;
 
-      const lBeat = lGrid.beatSec / leaderRate;
-      const fBeat = fGrid.beatSec / (1 + nextPitch / 100);
+      const ctx = leader.context.current;
+      if (!ctx) return;
 
-      // Where each deck sits within its current beat, as a fraction.
-      const lPhase = ((leader.position - lGrid.offsetSec) / lBeat) % 1;
-      const fPhase = ((follower.position - fGrid.offsetSec) / fBeat) % 1;
-      let drift = (fPhase - lPhase + 1.5) % 1 - 0.5; // -0.5..0.5 of a beat
-      const correction = drift * fBeat;
+      const fRate = 1 + nextPitch / 100;
+      const lBeat = lGrid.beatSec / leaderRate; // beat length in real seconds
+      const fBeat = fGrid.beatSec / fRate;
 
-      if (Math.abs(correction) > 0.001) {
-        follower.seek(Math.max(0, follower.position - correction));
-      }
+      // Read the leader off the audio clock, not React state, which is up to
+      // a frame stale. At 128bpm a frame is a tenth of a beat.
+      const lNow = leader.exactPosition();
+
+      // Schedule far enough ahead that the browser can honour it, then find
+      // the leader's beat boundary at or after that instant.
+      const lead = 0.09;
+      const targetTime = ctx.currentTime + lead;
+      const lAtTarget = lNow + lead * leaderRate;
+      const beatsIn = (lAtTarget - lGrid.offsetSec) / lBeat;
+      const nextBeatIndex = Math.ceil(beatsIn);
+      const lAtBeat = lGrid.offsetSec + nextBeatIndex * lBeat;
+      const startWhen = targetTime + (lAtBeat - lAtTarget) / leaderRate;
+
+      // Start the follower from ITS nearest grid line, so the two downbeats
+      // coincide rather than merely the tempos matching.
+      const fNow = follower.playing ? follower.exactPosition() : follower.position;
+      const fBeatsIn = (fNow - fGrid.offsetSec) / fBeat;
+      const fStart = fGrid.offsetSec + Math.round(fBeatsIn) * fBeat;
+
+      follower.startAt(Math.max(0, fStart), startWhen);
+      setSyncNote(
+        `Deck ${leaderSide === "A" ? "B" : "A"} pitched ${nextPitch > 0 ? "+" : ""}${nextPitch}% and locked to the grid`
+      );
+      setLockedTo(leaderSide);
     },
     [deckA, deckB]
   );
+
+  // Beat lock.
+  //
+  // Matching tempo once is not enough: two decks drift because the grid is a
+  // straight line and the music is not, and because the pitch fader has a
+  // resolution limit. A CDJ holds the lock by continuously correcting, so
+  // this does the same. Every quarter second it measures how far the
+  // follower's beat has slipped and applies a tiny rate change to pull it
+  // back, in the region of a tenth of a percent, which is inaudible.
+  useEffect(() => {
+    if (!lockedTo) return;
+    const leader = lockedTo === "A" ? deckA : deckB;
+    const follower = lockedTo === "A" ? deckB : deckA;
+
+    const id = window.setInterval(() => {
+      const lGrid = leader.waveform?.grid;
+      const fGrid = follower.waveform?.grid;
+      if (!lGrid || !fGrid || !leader.playing || !follower.playing) return;
+
+      const leaderRate = 1 + leader.pitch / 100;
+      const baseRate = 1 + follower.pitch / 100;
+      const lBeat = lGrid.beatSec / leaderRate;
+      const fBeat = fGrid.beatSec / baseRate;
+
+      const lPhase = ((leader.exactPosition() - lGrid.offsetSec) / lBeat) % 1;
+      const fPhase = ((follower.exactPosition() - fGrid.offsetSec) / fBeat) % 1;
+      // Shortest way round the beat, so a deck a hair behind is not dragged
+      // almost a whole beat forward.
+      const drift = ((fPhase - lPhase + 1.5) % 1) - 0.5;
+
+      // More than a third of a beat out is a jump, not drift. Correcting that
+      // with a rate change would be audible, so leave it: the user can press
+      // sync again.
+      if (Math.abs(drift) > 0.33) return;
+
+      // Proportional correction, capped so it stays inaudible.
+      const correction = Math.max(-0.004, Math.min(0.004, -drift * 0.02));
+      follower.nudgeRate(baseRate * (1 + correction));
+    }, 250);
+
+    return () => {
+      window.clearInterval(id);
+      // Hand the deck back to its pitch fader.
+      follower.nudgeRate(1 + follower.pitch / 100);
+    };
+  }, [lockedTo, deckA, deckB]);
+
+  // Any manual transport move breaks the lock, the way letting go of sync on
+  // a CDJ does. Without this the lock would fight the user.
+  useEffect(() => {
+    if (!lockedTo) return;
+    const follower = lockedTo === "A" ? deckB : deckA;
+    const leader = lockedTo === "A" ? deckA : deckB;
+    if (!follower.playing || !leader.playing) setLockedTo(null);
+  }, [lockedTo, deckA.playing, deckB.playing, deckA, deckB]);
 
   const canSync =
     Boolean(deckA.track?.bpm) && Boolean(deckB.track?.bpm);
@@ -728,6 +805,16 @@ export function Decks({
             >
               SYNC B TO A
             </button>
+            {lockedTo && (
+              <button
+                onClick={() => setLockedTo(null)}
+                className="flex items-center gap-1 font-label-mono text-label-mono text-primary border border-primary px-2 py-1 hover:bg-primary hover:text-on-primary transition-none"
+                title="Release the beat lock"
+              >
+                <span className="material-symbols-outlined text-[14px]">lock</span>
+                locked to {lockedTo}
+              </button>
+            )}
             {syncNote && (
               <span className="font-label-mono text-label-mono text-secondary">
                 {syncNote}
