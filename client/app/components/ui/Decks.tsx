@@ -80,6 +80,8 @@ function ChannelFader({
       <span className="font-label-mono text-label-mono text-secondary">
         {Math.round(value * 100)}
       </span>
+      {/* Fixed height: h-full here inherits the row and stretches the fader
+          down the whole page. */}
       <input
         type="range"
         min={0}
@@ -88,8 +90,8 @@ function ChannelFader({
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
         onDoubleClick={() => onChange(1)}
-        className="accent-primary h-full min-h-[8rem] cursor-pointer"
-        style={{ writingMode: "vertical-lr", direction: "rtl" }}
+        className="accent-primary cursor-pointer"
+        style={{ writingMode: "vertical-lr", direction: "rtl", height: "9rem" }}
         aria-label={`Deck ${side} volume`}
         title="Channel volume. Double click for full."
       />
@@ -302,7 +304,14 @@ export function Decks({
   const nextDeck = useRef<"A" | "B">("A");
 
   // Wire both decks into the crossfader once their chains exist.
-  const faderRef = useRef<{ a: GainNode; b: GainNode } | null>(null);
+  //
+  // Both channels meet at a master node, which then feeds the speakers and,
+  // when armed, the recorder. Recording from that single point captures
+  // exactly what you hear: both decks, the EQ, the faders, the lot.
+  const faderRef = useRef<{ a: GainNode; b: GainNode; master: GainNode } | null>(null);
+  const recordDestRef = useRef<MediaStreamAudioDestinationNode | null>(null);
+  const [recorderReady, setRecorderReady] = useState(false);
+
   useEffect(() => {
     const ctx = deckA.context.current;
     const outA = deckA.outputNode.current;
@@ -311,16 +320,97 @@ export function Decks({
 
     const a = ctx.createGain();
     const b = ctx.createGain();
-    outA.connect(a).connect(ctx.destination);
-    outB.connect(b).connect(ctx.destination);
-    faderRef.current = { a, b };
+    const master = ctx.createGain();
+    outA.connect(a).connect(master);
+    outB.connect(b).connect(master);
+    master.connect(ctx.destination);
+
+    const recDest = ctx.createMediaStreamDestination();
+    master.connect(recDest);
+
+    faderRef.current = { a, b, master };
+    recordDestRef.current = recDest;
+    setRecorderReady(typeof MediaRecorder !== "undefined");
 
     return () => {
       a.disconnect();
       b.disconnect();
+      master.disconnect();
+      recDest.disconnect();
       faderRef.current = null;
+      recordDestRef.current = null;
     };
   }, [deckA.context, deckA.outputNode, deckB.outputNode]);
+
+  // Recording. MediaRecorder writes webm/opus, which every browser can play
+  // and ffmpeg can convert. Chunks are held in memory and saved on stop.
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const [recording, setRecording] = useState(false);
+  const [recordSecs, setRecordSecs] = useState(0);
+
+  useEffect(() => {
+    if (!recording) return;
+    const started = Date.now();
+    const id = window.setInterval(
+      () => setRecordSecs(Math.floor((Date.now() - started) / 1000)),
+      500
+    );
+    return () => window.clearInterval(id);
+  }, [recording]);
+
+  const startRecording = useCallback(async () => {
+    const dest = recordDestRef.current;
+    const ctx = deckA.context.current;
+    if (!dest || !ctx) return;
+    if (ctx.state === "suspended") await ctx.resume();
+
+    // Pick whatever this build actually supports rather than assuming.
+    const preferred = [
+      "audio/webm;codecs=opus",
+      "audio/webm",
+      "audio/ogg;codecs=opus",
+    ];
+    const mimeType = preferred.find((t) => MediaRecorder.isTypeSupported(t));
+
+    const rec = new MediaRecorder(dest.stream, mimeType ? { mimeType } : undefined);
+    chunksRef.current = [];
+    rec.ondataavailable = (e) => {
+      if (e.data.size) chunksRef.current.push(e.data);
+    };
+    rec.onstop = () => {
+      const blob = new Blob(chunksRef.current, {
+        type: mimeType || "audio/webm",
+      });
+      chunksRef.current = [];
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const stamp = new Date()
+        .toISOString()
+        .replace(/[:T]/g, "-")
+        .slice(0, 19);
+      a.href = url;
+      a.download = `cuepull-mix-${stamp}.webm`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      // Revoking immediately can cancel the download in some builds.
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+    };
+
+    rec.start(1000); // flush once a second so a crash loses at most that
+    recorderRef.current = rec;
+    setRecordSecs(0);
+    setRecording(true);
+  }, [deckA.context]);
+
+  const stopRecording = useCallback(() => {
+    const rec = recorderRef.current;
+    if (!rec || rec.state === "inactive") return;
+    rec.stop();
+    recorderRef.current = null;
+    setRecording(false);
+  }, []);
 
   // Constant power crossfade, so the middle does not sound quieter than
   // either end the way a linear fade does.
@@ -483,6 +573,91 @@ export function Decks({
       ? Math.round((deckB.playingBpm - deckA.playingBpm) * 10) / 10
       : null;
 
+  // Beat sync. Matches the follower's tempo to the leader by moving its pitch
+  // fader, then lines the two grids up so the beats land together.
+  //
+  // This is tempo and phase matching, not time stretching: the follower's
+  // pitch moves with its tempo, exactly as if you had ridden the fader by
+  // hand. A large correction will audibly change its key, which is why the
+  // button reports the amount and refuses a match it cannot reach.
+  const [syncNote, setSyncNote] = useState<string | null>(null);
+
+  // Clear the note after a few seconds so it does not sit there stale.
+  useEffect(() => {
+    if (!syncNote) return;
+    const id = window.setTimeout(() => setSyncNote(null), 5000);
+    return () => window.clearTimeout(id);
+  }, [syncNote]);
+
+  const syncTo = useCallback(
+    (leaderSide: "A" | "B") => {
+      const leader = leaderSide === "A" ? deckA : deckB;
+      const follower = leaderSide === "A" ? deckB : deckA;
+
+      const lBpm = leader.track?.bpm;
+      const fBpm = follower.track?.bpm;
+      if (!lBpm || !fBpm) {
+        setSyncNote("Both decks need an analysed tempo to sync");
+        return;
+      }
+
+      // Match against half or double time when that is the closer target, so
+      // a 150 can ride against a 75 without an impossible fader move.
+      const targets = [lBpm, lBpm * 2, lBpm / 2];
+      let best = targets[0];
+      let bestPct = Infinity;
+      for (const t of targets) {
+        const pct = Math.abs(t - fBpm) / fBpm;
+        if (pct < bestPct) {
+          bestPct = pct;
+          best = t;
+        }
+      }
+
+      // The leader's own pitch counts: sync to what it is actually playing.
+      const leaderRate = 1 + leader.pitch / 100;
+      const wanted = ((best * leaderRate) / fBpm - 1) * 100;
+
+      // A pitch fader only reaches 8%. Beyond that the tracks genuinely
+      // cannot be beatmatched this way, so say so rather than doing nothing
+      // and leaving the button looking broken.
+      if (!isFinite(wanted) || Math.abs(wanted) > 8) {
+        setSyncNote(
+          `${fBpm} and ${lBpm} bpm are ${Math.abs(Math.round(wanted))}% apart, past the 8% the pitch fader reaches`
+        );
+        return;
+      }
+
+      const nextPitch = Math.round(wanted * 100) / 100;
+      follower.setPitch(nextPitch);
+      setSyncNote(
+        `Deck ${leaderSide === "A" ? "B" : "A"} pitched ${nextPitch > 0 ? "+" : ""}${nextPitch}% to match`
+      );
+
+      // Phase: nudge the follower so its next beat falls with the leader's.
+      const lGrid = leader.waveform?.grid;
+      const fGrid = follower.waveform?.grid;
+      if (!lGrid || !fGrid || !leader.playing) return;
+
+      const lBeat = lGrid.beatSec / leaderRate;
+      const fBeat = fGrid.beatSec / (1 + nextPitch / 100);
+
+      // Where each deck sits within its current beat, as a fraction.
+      const lPhase = ((leader.position - lGrid.offsetSec) / lBeat) % 1;
+      const fPhase = ((follower.position - fGrid.offsetSec) / fBeat) % 1;
+      let drift = (fPhase - lPhase + 1.5) % 1 - 0.5; // -0.5..0.5 of a beat
+      const correction = drift * fBeat;
+
+      if (Math.abs(correction) > 0.001) {
+        follower.seek(Math.max(0, follower.position - correction));
+      }
+    },
+    [deckA, deckB]
+  );
+
+  const canSync =
+    Boolean(deckA.track?.bpm) && Boolean(deckB.track?.bpm);
+
   return (
     <section className="mt-stack-lg border-t border-dashed border-outline-variant pt-stack-md">
       <div className="flex flex-wrap items-baseline justify-between gap-stack-sm mb-stack-md">
@@ -504,7 +679,7 @@ export function Decks({
 
       {/* Faders sit on the outside edges, mirroring a mixer layout. */}
       <div className="grid gap-stack-md md:grid-cols-2">
-        <div className="flex gap-stack-sm items-stretch">
+        <div className="flex gap-stack-sm items-start">
           <ChannelFader value={deckA.volume} onChange={deckA.setVolume} side="A" />
           <div className="flex-1 min-w-0">
             <DeckPanel
@@ -518,7 +693,7 @@ export function Decks({
             />
           </div>
         </div>
-        <div className="flex gap-stack-sm items-stretch">
+        <div className="flex gap-stack-sm items-start">
           <div className="flex-1 min-w-0">
             <DeckPanel
               deck={deckB}
@@ -535,6 +710,52 @@ export function Decks({
       </div>
 
       <div className="mt-stack-md border border-primary p-gutter">
+        <div className="flex flex-wrap items-center justify-between gap-stack-sm mb-stack-md">
+          <div className="flex items-center gap-stack-sm">
+            <button
+              onClick={() => syncTo("B")}
+              disabled={!canSync}
+              className="font-label-caps text-label-caps border border-primary px-3 py-1 hover:bg-primary hover:text-on-primary transition-none disabled:opacity-30"
+              title="Match deck A to deck B's tempo and beat"
+            >
+              SYNC A TO B
+            </button>
+            <button
+              onClick={() => syncTo("A")}
+              disabled={!canSync}
+              className="font-label-caps text-label-caps border border-primary px-3 py-1 hover:bg-primary hover:text-on-primary transition-none disabled:opacity-30"
+              title="Match deck B to deck A's tempo and beat"
+            >
+              SYNC B TO A
+            </button>
+            {syncNote && (
+              <span className="font-label-mono text-label-mono text-secondary">
+                {syncNote}
+              </span>
+            )}
+          </div>
+
+          <button
+            onClick={recording ? stopRecording : startRecording}
+            disabled={!recorderReady}
+            className={`flex items-center gap-2 font-label-caps text-label-caps border px-3 py-1 transition-none disabled:opacity-30 ${
+              recording
+                ? "border-error text-error"
+                : "border-primary hover:bg-primary hover:text-on-primary"
+            }`}
+            title={
+              recording
+                ? "Stop and save the recording"
+                : "Record the mix as it plays, exactly what comes out of the crossfader"
+            }
+          >
+            <span className="material-symbols-outlined text-[16px]">
+              {recording ? "stop_circle" : "fiber_manual_record"}
+            </span>
+            {recording ? `RECORDING ${fmt(recordSecs)}` : "RECORD"}
+          </button>
+        </div>
+
         <div className="flex items-baseline justify-between mb-stack-sm font-label-mono text-label-mono">
           <span className="text-secondary">A</span>
           <span className="uppercase">

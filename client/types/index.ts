@@ -121,6 +121,16 @@ export interface LibraryStats {
   playSource: "rekordbox" | "manual" | null;
 }
 
+export interface LibraryTrack {
+  fileName: string;
+  title: string;
+  artist: string;
+  bpm: number | null;
+  camelot: string | null;
+  musicalKey: string | null;
+  durationSec: number | null;
+}
+
 export interface SetlistTrack {
   fileName: string;
   title: string;

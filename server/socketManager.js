@@ -327,6 +327,20 @@ function initSocketManager(io) {
       }
     }));
 
+    // The saved library, for picking which tracks go into a setlist.
+    socket.on("library:list", safeHandler("library-list", (_p, ack) => {
+      const tracks = library.allTracks().map((t) => ({
+        fileName: t.fileName,
+        title: t.title || t.fileName,
+        artist: t.artist || "",
+        bpm: t.bpm ?? null,
+        camelot: t.camelot ?? null,
+        musicalKey: t.musicalKey ?? null,
+        durationSec: t.durationSec ?? null,
+      }));
+      if (typeof ack === "function") ack({ ok: true, tracks });
+    }));
+
     // Order the library into something playable. Cheap enough to run on
     // demand: around 140ms for 55 tracks, so there is nothing to cache.
     socket.on("setlist:build", safeHandler("setlist", (payload, ack) => {

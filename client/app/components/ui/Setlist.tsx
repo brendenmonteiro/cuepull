@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { Setlist as SetlistData, SetlistTransition } from "@/types";
+import type { Setlist as SetlistData, SetlistTransition, LibraryTrack } from "@/types";
 
 // The ordered set, with the reason for every join shown between the rows.
 // A transition you disagree with is more useful than a number you cannot
@@ -63,16 +63,48 @@ export function Setlist({
   loading,
   onBuild,
   onPlay,
+  library,
+  onLoadLibrary,
 }: {
   setlist: SetlistData | null;
   loading: boolean;
-  onBuild: () => void;
+  onBuild: (fileNames?: string[]) => void;
   onPlay?: (fileName: string) => void;
+  library: LibraryTrack[];
+  onLoadLibrary: () => void;
 }) {
   const [showJoins, setShowJoins] = useState(true);
+  const [picking, setPicking] = useState(false);
+  const [chosen, setChosen] = useState<Set<string>>(new Set());
+  const [filter, setFilter] = useState("");
+
+  const openPicker = () => {
+    onLoadLibrary();
+    setPicking(true);
+  };
+
+  const shown = library.filter((t) => {
+    if (!filter.trim()) return true;
+    const q = filter.toLowerCase();
+    return (
+      t.title.toLowerCase().includes(q) ||
+      t.artist.toLowerCase().includes(q) ||
+      (t.camelot || "").toLowerCase().includes(q) ||
+      String(t.bpm ?? "").includes(q)
+    );
+  });
+
+  const toggle = (fileName: string) => {
+    setChosen((prev) => {
+      const next = new Set(prev);
+      if (next.has(fileName)) next.delete(fileName);
+      else next.add(fileName);
+      return next;
+    });
+  };
 
   const header = (
-    <div className="flex items-baseline justify-between mb-stack-md">
+    <div className="flex flex-wrap items-baseline justify-between gap-stack-sm mb-stack-md">
       <p className="font-label-mono text-label-mono text-secondary">// SETLIST</p>
       <div className="flex items-center gap-stack-md">
         {setlist && setlist.tracks.length > 0 && (
@@ -84,12 +116,94 @@ export function Setlist({
           </button>
         )}
         <button
-          onClick={onBuild}
+          onClick={openPicker}
+          className="font-label-caps text-label-caps border border-primary px-4 py-1 hover:bg-primary hover:text-on-primary transition-none"
+          title="Choose which tracks go into the setlist"
+        >
+          PICK TRACKS{chosen.size > 0 ? ` (${chosen.size})` : ""}
+        </button>
+        <button
+          onClick={() => onBuild(chosen.size ? Array.from(chosen) : undefined)}
           disabled={loading}
           className="font-label-caps text-label-caps border border-primary px-4 py-1 hover:bg-primary hover:text-on-primary transition-none disabled:opacity-40"
+          title={
+            chosen.size
+              ? `Order the ${chosen.size} picked tracks`
+              : "Order the whole library"
+          }
         >
           {loading ? "ORDERING" : setlist ? "REBUILD" : "BUILD SETLIST"}
         </button>
+      </div>
+    </div>
+  );
+
+  const picker = picking && (
+    <div className="mb-stack-md border border-primary">
+      <div className="flex flex-wrap items-center gap-stack-sm px-3 py-2 border-b border-primary">
+        <input
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          placeholder="Filter by name, artist, key or bpm"
+          className="flex-1 min-w-[12rem] bg-background border border-outline-variant px-2 py-1 font-label-mono text-label-mono outline-none focus:border-primary"
+        />
+        <span className="font-label-mono text-label-mono text-secondary">
+          {chosen.size} of {library.length}
+        </span>
+        <button
+          onClick={() => setChosen(new Set(shown.map((t) => t.fileName)))}
+          className="font-label-mono text-label-mono text-secondary hover:text-primary transition-none"
+        >
+          all
+        </button>
+        <button
+          onClick={() => setChosen(new Set())}
+          className="font-label-mono text-label-mono text-secondary hover:text-primary transition-none"
+        >
+          none
+        </button>
+        <button
+          onClick={() => setPicking(false)}
+          className="material-symbols-outlined text-[18px] text-secondary hover:text-primary transition-none"
+          aria-label="Close the track picker"
+        >
+          close
+        </button>
+      </div>
+
+      <div className="max-h-72 overflow-y-auto">
+        {library.length === 0 ? (
+          <p className="px-3 py-3 font-label-mono text-label-mono text-secondary">
+            Nothing saved yet.
+          </p>
+        ) : (
+          shown.map((t) => {
+            const on = chosen.has(t.fileName);
+            return (
+              <button
+                key={t.fileName}
+                onClick={() => toggle(t.fileName)}
+                className={`w-full flex items-center gap-stack-sm px-3 py-1 text-left border-b border-outline-variant last:border-b-0 transition-none ${
+                  on ? "bg-primary text-on-primary" : "hover:bg-surface-container"
+                }`}
+              >
+                <span className="material-symbols-outlined text-[16px] shrink-0">
+                  {on ? "check_box" : "check_box_outline_blank"}
+                </span>
+                <span className="font-label-caps text-label-caps w-10 shrink-0">
+                  {t.camelot || "--"}
+                </span>
+                <span className="font-label-mono text-label-mono w-14 shrink-0 text-right">
+                  {t.bpm != null ? t.bpm.toFixed(1) : "--"}
+                </span>
+                <span className="font-body-sm text-body-sm flex-1 min-w-0 truncate">
+                  {t.artist ? `${t.artist}  ` : ""}
+                  {t.title}
+                </span>
+              </button>
+            );
+          })
+        )}
       </div>
     </div>
   );
@@ -98,10 +212,11 @@ export function Setlist({
     return (
       <section className="mt-stack-lg border-t border-dashed border-outline-variant pt-stack-md">
         {header}
+        {picker}
         <p className="font-body-sm text-body-sm text-secondary">
           {loading
             ? "Working out an order."
-            : "Orders your library by key, tempo and energy into something you could play front to back."}
+            : "Orders your library by key, tempo and energy into something you could play front to back. Pick tracks first to order a subset."}
         </p>
       </section>
     );
@@ -113,6 +228,7 @@ export function Setlist({
   return (
     <section className="mt-stack-lg border-t border-dashed border-outline-variant pt-stack-md">
       {header}
+      {picker}
 
       <div className="flex flex-wrap gap-x-stack-lg gap-y-1 mb-stack-md font-label-mono text-label-mono text-secondary">
         <span>{stats.count} tracks</span>

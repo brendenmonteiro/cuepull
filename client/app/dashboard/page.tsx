@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { connectSocket } from "@/lib/socket";
-import { Track, TrackMeta, LibraryStats, AppSettings, Setlist as SetlistData } from "@/types";
+import { Track, TrackMeta, LibraryStats, AppSettings, Setlist as SetlistData, LibraryTrack } from "@/types";
 import { TrackCard } from "@/app/components/ui/TrackCard";
 import { CrateIntel } from "@/app/components/ui/CrateIntel";
 import { Setlist } from "@/app/components/ui/Setlist";
@@ -33,6 +33,7 @@ export default function DashboardPage() {
   const [libStats, setLibStats] = useState<LibraryStats | null>(null);
   const [setlist, setSetlist] = useState<SetlistData | null>(null);
   const [setlistLoading, setSetlistLoading] = useState(false);
+  const [libraryTracks, setLibraryTracks] = useState<LibraryTrack[]>([]);
   // A nonce rather than just the track, so loading the same track twice in a
   // row still registers as a new request.
   const [deckLoad, setDeckLoad] = useState<{ track: DeckTrack; nonce: number } | null>(null);
@@ -315,11 +316,21 @@ export default function DashboardPage() {
     [setlist]
   );
 
-  const buildSetlist = useCallback(() => {
+  const loadLibrary = useCallback(() => {
+    socketRef.current.emit(
+      "library:list",
+      {},
+      (r: { ok: boolean; tracks?: LibraryTrack[] }) => {
+        if (r?.ok && r.tracks) setLibraryTracks(r.tracks);
+      }
+    );
+  }, []);
+
+  const buildSetlist = useCallback((fileNames?: string[]) => {
     setSetlistLoading(true);
     socketRef.current.emit(
       "setlist:build",
-      {},
+      fileNames?.length ? { fileNames } : {},
       (r: { ok: boolean; setlist?: SetlistData; error?: string }) => {
         setSetlistLoading(false);
         if (r?.ok && r.setlist) setSetlist(r.setlist);
@@ -580,6 +591,8 @@ export default function DashboardPage() {
             loading={setlistLoading}
             onBuild={buildSetlist}
             onPlay={loadToDeck}
+            library={libraryTracks}
+            onLoadLibrary={loadLibrary}
           />
         )}
 
