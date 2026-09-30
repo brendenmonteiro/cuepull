@@ -30,10 +30,6 @@ const PROFILE = fs.mkdtempSync(path.join(os.tmpdir(), "cuepull-shots-"));
 const LIBRARY = process.env.SHOTS_LIBRARY || "C:/Music/Cuepull";
 
 function seedProfile() {
-  const realData = process.env.APPDATA
-    ? path.join(process.env.APPDATA, "Cuepull")
-    : null;
-
   fs.writeFileSync(
     path.join(PROFILE, "settings.json"),
     JSON.stringify(
@@ -53,24 +49,23 @@ function seedProfile() {
     )
   );
 
-  // Take the analysed library but keep only the tracks that actually exist
-  // under LIBRARY, so the setlist and decks have real audio to work with.
-  if (realData) {
-    const src = path.join(realData, "library.json");
-    if (fs.existsSync(src)) {
-      const db = JSON.parse(fs.readFileSync(src, "utf8"));
-      const kept = {};
-      for (const [name, t] of Object.entries(db.tracks || {})) {
-        const full = path.join(LIBRARY, ...name.split("/"));
-        if (fs.existsSync(full)) kept[name] = t;
-      }
-      fs.writeFileSync(
-        path.join(PROFILE, "library.json"),
-        JSON.stringify({ ...db, tracks: kept }, null, 2)
-      );
-      console.log(`  library: ${Object.keys(kept).length} tracks present`);
-    }
+  // Use the generated demo library, never the real crate.
+  //
+  // Naming commercial releases in a README is what turned the 2020 youtube-dl
+  // takedown from an argument about code into an argument about evidence: the
+  // notice quoted the project's own examples. A screenshot of this app holding
+  // a shelf of chart tracks, with the labels legible, makes that argument for
+  // someone else. Run scripts/demo-library.js first.
+  const demo = path.join(LIBRARY, "demo-library.json");
+  if (!fs.existsSync(demo)) {
+    throw new Error(
+      `No demo library at ${demo}.\n` +
+      `Run:  node scripts/demo-library.js "${LIBRARY}"`
+    );
   }
+  fs.copyFileSync(demo, path.join(PROFILE, "library.json"));
+  const n = Object.keys(JSON.parse(fs.readFileSync(demo, "utf8")).tracks || {}).length;
+  console.log(`  demo library: ${n} tracks`);
 }
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
