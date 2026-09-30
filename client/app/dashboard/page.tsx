@@ -638,7 +638,7 @@ export default function DashboardPage() {
             </div>
           </div>
           <div className="border border-primary p-gutter flex flex-col justify-between h-32">
-            <span className="font-label-mono text-label-mono text-secondary">V.1.05</span>
+            <span className="font-label-mono text-label-mono text-secondary">V.1.2.0</span>
             <div>
               <h3 className="font-label-caps text-label-caps uppercase mb-unit">MP3 · FLAC · WAV</h3>
               <p className="font-body-sm text-body-sm text-secondary">YouTube + SoundCloud + lossless search with extended-mix prompt.</p>

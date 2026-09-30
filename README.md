@@ -283,10 +283,14 @@ Nothing can make 87 bpm sit next to 121, and forcing it reads as a bug rather
 than what it is. Half and double time count as neighbours, so a 75 belongs
 fine in a 150 crate.
 
+![An ordered setlist with the reason for every join](docs/images/05-setlist.png)
+
 ## Decks
 
 Press play on a setlist row and the track loads into a free deck. Two decks,
 a crossfader, and enough of a mixer to hear whether a transition works.
+
+![Two decks with beat grids, EQ, sync and a recorder](docs/images/06-decks.png)
 
 Each deck has a scrolling detail waveform with the beat grid drawn behind it,
 a clickable overview strip, cue, play, three band EQ with a kill at the bottom
