@@ -4,6 +4,10 @@ A desktop app for building a DJ library. Type a track name or paste a link,
 pick a format, and it finds a source and pulls down the audio. Nothing is
 written to disk until you press download.
 
+Once tracks are saved it orders them into a setlist by key and tempo, and there
+are two decks in the app so you can hear a transition without opening
+rekordbox.
+
 Windows desktop app. A macOS build exists but has not been tested on real
 hardware yet, so it is not in the releases: see [Trying it on
 macOS](#trying-it-on-macos) if you have a Mac and are willing to help. There is
@@ -33,6 +37,15 @@ moves: searching, found, downloading, saved. Progress updates live.
 **Downloads happen when you ask.** Searching only finds a source. The track
 sits in the queue marked `READY TO GET` until you hit the download button on
 that row, or Download All. Then you choose where the file goes.
+
+**BPM and key, worked out locally.** Every saved track is analysed on your
+machine. Nothing is uploaded.
+
+**A setlist you could play.** Orders the library by key, tempo and energy, and
+says why each pair of tracks sits together.
+
+**Two decks.** Load a track on each side and hear the transition, with beat
+grids, EQ, sync and a recorder. See [Decks](#decks).
 
 ## Install
 
@@ -250,6 +263,65 @@ bridge that:
 Ableton needs nothing: it watches folders, so pointing it at your library
 works already.
 
+## Setlist
+
+**BUILD SETLIST** orders your library into something you could play front to
+back: keys that sit next to each other on the Camelot wheel, tempos close
+enough to ride the pitch fader, and energy that builds rather than wanders.
+Around 140ms for 55 tracks.
+
+**PICK TRACKS** opens the library with a filter over name, artist, key and
+bpm. Tick what you want and only those get ordered. Nothing ticked orders
+everything.
+
+Between every pair of rows it says why they sit together: "one step on the
+wheel, +1.1 bpm". A join you can argue with is more useful than a score you
+cannot. Rough joins are marked.
+
+Tracks with no tempo neighbour are listed separately rather than wedged in.
+Nothing can make 87 bpm sit next to 121, and forcing it reads as a bug rather
+than what it is. Half and double time count as neighbours, so a 75 belongs
+fine in a 150 crate.
+
+## Decks
+
+Press play on a setlist row and the track loads into a free deck. Two decks,
+a crossfader, and enough of a mixer to hear whether a transition works.
+
+Each deck has a scrolling detail waveform with the beat grid drawn behind it,
+a clickable overview strip, cue, play, three band EQ with a kill at the bottom
+of each, a channel fader, and a pitch fader that shows the resulting bpm. The
+zoom slider sets how many seconds are visible, from 4 to 40: wider means the
+waveform crawls instead of racing, which makes it easier to hit a beat.
+
+**SYNC** matches one deck to the other. It schedules the follower to start on
+the leader's next grid line, from its own nearest grid line, so the downbeats
+land together rather than the tempos merely matching. A lock then holds it,
+correcting drift by under 0.4% every quarter second, which is inaudible. The
+lock releases when either deck stops or when you click the badge.
+
+A pitch fader only reaches 8%, so two tracks further apart than that cannot be
+beatmatched this way. Sync says so rather than doing nothing.
+
+**RECORD** captures what comes out of the crossfader, both decks with the EQ
+and faders applied, and saves a webm when you stop.
+
+Cue is momentary, like a CDJ: hold to preview from the cue point, release and
+it snaps back. **SET** drops a cue point at the playhead.
+
+| Key | Action |
+|---|---|
+| `Q` / `P` | play or pause deck A / B |
+| `W` / `O` | hold to preview from the cue point |
+| `E` / `I` | jump to the cue point and keep playing |
+| `S` / `L` | set a cue point at the playhead |
+| `1` `2` `3` `4` / `7` `8` `9` `0` | nudge pitch |
+| `Z` / `C` / `X` | crossfader left, centre, right |
+
+This is a preview player. Latency is fine for auditioning a transition, not
+for playing a set on a controller, and there is no time stretching yet: the
+pitch fader moves pitch along with tempo, the way a turntable does.
+
 ## Settings
 
 Open the menu (the hamburger, top right) for everything configurable.
@@ -366,9 +438,13 @@ cuepull/
 │   ├── index.js         HTTP and WebSocket entry
 │   ├── musicHandler.js  yt-dlp search and download
 │   ├── socketManager.js Queue state and request pipelines
+│   ├── analyser.js      BPM and key, locally
+│   ├── setlist.js       Orders a crate by key, tempo and energy
+│   ├── waveform.js      Peaks and beat grids for the decks
 │   └── binaries.js      Finds yt-dlp and ffmpeg
 ├── client/              Next.js frontend
 │   ├── app/dashboard/   The UI
+│   ├── app/components/  Setlist, decks, waveforms, settings
 │   └── lib/socket.ts    Socket.io client
 ├── scripts/             Build helpers
 └── resources/           Icon, and bundled binaries once fetched

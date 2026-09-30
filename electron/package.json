@@ -1,6 +1,6 @@
 {
   "name": "Cuepull",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Cuepull desktop shell",
   "main": "main.js",
   "private": true
